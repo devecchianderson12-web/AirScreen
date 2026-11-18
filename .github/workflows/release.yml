@@ -96,6 +96,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+          cache: gradle
       - name: Build release APK
         working-directory: android
         env:
@@ -110,7 +111,8 @@ jobs:
           else
             echo "::warning::ANDROID_KEYSTORE_BASE64 not set - APK will be signed with the debug key (cannot be updated in place later)."
           fi
-          ./gradlew --no-daemon assembleRelease -PappVersion="$VERSION"
+          ok=0; for i in 1 2 3; do ./gradlew --no-daemon assembleRelease -PappVersion="$VERSION" && { ok=1; break; }; echo "Retrying in 60 s…"; sleep 60; done
+          [ "$ok" = 1 ] || exit 1
           cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/DualScreen.apk"
       - uses: actions/upload-artifact@v4
         with:

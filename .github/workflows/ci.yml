@@ -38,9 +38,12 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+          cache: gradle
       - name: Build debug APK
         working-directory: android
-        run: ./gradlew --no-daemon assembleDebug
+        run: |
+          # Maven Central sometimes throttles hosted runners (429 / transient "Could not find"): retry.
+          for i in 1 2 3; do ./gradlew --no-daemon assembleDebug && exit 0; echo "Retrying in 60 s…"; sleep 60; done; exit 1
       - uses: actions/upload-artifact@v4
         with:
           name: DualScreen-ci-apk
