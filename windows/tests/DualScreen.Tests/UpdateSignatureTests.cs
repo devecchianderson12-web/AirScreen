@@ -36,3 +36,26 @@ public class UpdateSignatureTests
         Assert.True(UpdateService.VerifySignature(hash, sig, System.IO.File.ReadAllText(pubPath)));
     }
 }
+
+public class UpdateMarkerTests
+{
+    [Fact]
+    public void ExtractsHiddenMarkerAndCleansNotes()
+    {
+        string sha = new string('A', 64);
+        string body = "### Añadido\n- Algo nuevo\n\n<!-- dualscreen-update sha256=" + sha + " sig=MEUCIQ+/abc= -->\n";
+        var (notes, s, sig) = UpdateService.ParseUpdateMarker(body);
+        Assert.Equal("### Añadido\n- Algo nuevo", notes);
+        Assert.Equal(new string('a', 64), s);
+        Assert.Equal("MEUCIQ+/abc=", sig);
+    }
+
+    [Fact]
+    public void MissingMarkerMeansNotVerifiable()
+    {
+        var (notes, s, sig) = UpdateService.ParseUpdateMarker("Solo notas");
+        Assert.Equal("Solo notas", notes);
+        Assert.Null(s);
+        Assert.Null(sig);
+    }
+}

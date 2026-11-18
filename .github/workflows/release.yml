@@ -1,7 +1,7 @@
 name: Release
 
 # Push a tag like v1.2.3, or run it from the Actions tab ("Run workflow", enter 1.2.3).
-# Produces and publishes: DualScreen.exe, DualScreen.exe.sig, DualScreen.apk, DualScreen-driver.zip, SHA256SUMS
+# Publishes exactly two files: DualScreen.exe (PC) and DualScreen.apk (phone).
 on:
   push:
     tags: ["v*.*.*"]
@@ -139,21 +139,24 @@ jobs:
           UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
         run: |
           set -euo pipefail
-          mkdir release
+          # Only the two apps are published. The driver package is embedded in DualScreen.exe, and the
+          # exe's hash + signature go in an invisible comment in the release notes (read by the updater).
+          mkdir release verify
           cp dist/exe/DualScreen.exe release/
           cp dist/apk/DualScreen.apk release/
-          (cd dist/driver && zip -r ../../release/DualScreen-driver.zip .)
           if [ -z "$UPDATE_SIGNING_KEY" ]; then echo "UPDATE_SIGNING_KEY secret is required"; exit 1; fi
           printf '%s\n' "$UPDATE_SIGNING_KEY" > "$RUNNER_TEMP/update.key"
-          ./scripts/sign-update.sh "$RUNNER_TEMP/update.key" release/DualScreen.exe
+          cp release/DualScreen.exe verify/
+          ./scripts/sign-update.sh "$RUNNER_TEMP/update.key" verify/DualScreen.exe
           rm -f "$RUNNER_TEMP/update.key"
-          (cd release && sha256sum DualScreen.exe DualScreen.apk DualScreen-driver.zip > SHA256SUMS)
+          ./scripts/verify-update.sh config/update-public-key.pem verify/DualScreen.exe
+          echo "EXE_SHA256=$(sha256sum release/DualScreen.exe | cut -d' ' -f1)" >> "$GITHUB_ENV"
+          echo "EXE_SIG=$(cat verify/DualScreen.exe.sig)" >> "$GITHUB_ENV"
           ls -l release
-      - name: Verify signature against committed public key
-        run: ./scripts/verify-update.sh config/update-public-key.pem release/DualScreen.exe
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           ./scripts/release-notes.sh "$VERSION" > notes.md
+          printf '\n<!-- dualscreen-update sha256=%s sig=%s -->\n' "$EXE_SHA256" "$EXE_SIG" >> notes.md
           gh release create "$RELEASE_TAG" release/* --target "$GITHUB_SHA" --title "DualScreen $RELEASE_TAG" --notes-file notes.md

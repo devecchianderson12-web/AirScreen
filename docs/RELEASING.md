@@ -37,9 +37,11 @@
    Actualiza la versión, crea el commit y la etiqueta `vX.Y.Z` y los sube.
    Alternativa desde el navegador: pestaña *Actions* → *Release* → *Run workflow* → versión `X.Y.Z`
    (la etiqueta se crea al publicar).
-3. `release.yml` compila el controlador, el exe (con el controlador embebido), la APK, genera `SHA256SUMS`,
+3. `release.yml` compila el controlador, el exe (con el controlador embebido), la APK, calcula el SHA‑256,
    firma el exe, verifica la firma con la clave pública versionada y publica la release con:
-   `DualScreen.exe`, `DualScreen.exe.sig`, `DualScreen.apk`, `DualScreen-driver.zip`, `SHA256SUMS`.
+   solo `DualScreen.exe` y `DualScreen.apk`. El hash y la firma van en un comentario invisible de las notas
+   (`<!-- dualscreen-update … -->`): no edites ni borres esa línea. GitHub añade siempre los enlaces automáticos
+   "Source code (zip/tar.gz)"; no se pueden quitar.
 4. Las copias instaladas detectan la versión en ≤ 6 h (o al pulsar *Buscar actualizaciones*), muestran la
    notificación y el botón **Actualizar ahora**.
 

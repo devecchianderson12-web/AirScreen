@@ -20,15 +20,18 @@ public sealed class ReleaseInfo
     public string Notes { get; init; } = "";
     public string HtmlUrl { get; init; } = "";
     public string? ExeUrl { get; init; }
-    public string? SigUrl { get; init; }
-    public string? SumsUrl { get; init; }
+    /// <summary>Expected SHA-256 (hex) and ECDSA signature (base64 DER) of the exe, from the release notes marker.</summary>
+    public string? Sha256 { get; init; }
+    public string? Signature { get; init; }
 }
 
 public enum UpdateState { Idle, Checking, UpToDate, Available, Downloading, ReadyToInstall, Error }
 
 /// <summary>
-/// Checks GitHub Releases periodically, downloads the new DualScreen.exe, verifies SHA-256 (SHA256SUMS) and an
-/// ECDSA P-256 signature made with the project's offline release key, then hands over to the external updater.
+/// Checks GitHub Releases periodically, downloads the new DualScreen.exe, verifies its SHA-256 and an ECDSA P-256
+/// signature made with the project's release key, then hands over to the external updater. Hash and signature travel
+/// in an invisible HTML comment in the release notes, so the release only lists DualScreen.exe and DualScreen.apk:
+///   &lt;!-- dualscreen-update sha256=HEX sig=BASE64 --&gt;
 /// An update that fails any check is discarded; the running executable is never touched by this class.
 /// </summary>
 public sealed class UpdateService : IDisposable
@@ -93,16 +96,17 @@ public sealed class UpdateService : IDisposable
                 .Where(a => string.Equals(a.GetProperty("name").GetString(), name, StringComparison.OrdinalIgnoreCase))
                 .Select(a => a.GetProperty("browser_download_url").GetString()).FirstOrDefault();
 
-            string exe = AppInfo.Repo.ExeAssetName;
+            string body = root.TryGetProperty("body", out var b) ? b.GetString() ?? "" : "";
+            var (notes, sha, sig) = ParseUpdateMarker(body);
             Latest = new ReleaseInfo
             {
                 Version = v,
                 Tag = tag,
-                Notes = root.TryGetProperty("body", out var b) ? b.GetString() ?? "" : "",
+                Notes = notes,
                 HtmlUrl = root.TryGetProperty("html_url", out var h) ? h.GetString() ?? "" : "",
-                ExeUrl = Asset(exe),
-                SigUrl = Asset(exe + ".sig"),
-                SumsUrl = Asset("SHA256SUMS"),
+                ExeUrl = Asset(AppInfo.Repo.ExeAssetName),
+                Sha256 = sha,
+                Signature = sig,
             };
             LastCheckUtc = DateTime.UtcNow;
             var current = new Version(AppInfo.Version.Major, AppInfo.Version.Minor, Math.Max(0, AppInfo.Version.Build));
@@ -137,9 +141,9 @@ public sealed class UpdateService : IDisposable
     public async Task<string?> DownloadAndVerifyAsync()
     {
         var rel = Latest;
-        if (rel?.ExeUrl == null || rel.SigUrl == null || rel.SumsUrl == null)
+        if (rel?.ExeUrl == null || rel.Sha256 == null || rel.Signature == null)
         {
-            Set(UpdateState.Error, "La versión publicada no incluye el ejecutable, su firma o SHA256SUMS.");
+            Set(UpdateState.Error, "La versión publicada no incluye el ejecutable o sus datos de verificación.");
             return null;
         }
         string? pem = LoadPublicKeyPem();
@@ -153,20 +157,15 @@ public sealed class UpdateService : IDisposable
             Set(UpdateState.Downloading);
             string target = Path.Combine(AppPaths.UpdateDir, $"DualScreen-{rel.Version}.exe.download");
             await DownloadAsync(rel.ExeUrl, target).ConfigureAwait(false);
-            string sums = await Http.GetStringAsync(rel.SumsUrl).ConfigureAwait(false);
-            string sigB64 = (await Http.GetStringAsync(rel.SigUrl).ConfigureAwait(false)).Trim();
 
             byte[] fileHash;
             await using (var fs = File.OpenRead(target)) fileHash = await SHA256.HashDataAsync(fs).ConfigureAwait(false);
             string hex = Convert.ToHexString(fileHash).ToLowerInvariant();
-            string? expected = sums.Split('\n')
-                .Select(l => l.Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries))
-                .Where(p => p.Length == 2 && p[1].TrimStart('*').Trim() == AppInfo.Repo.ExeAssetName)
-                .Select(p => p[0].ToLowerInvariant()).FirstOrDefault();
-            if (expected == null || !SecretStore.FixedTimeEqualsHex(expected, hex))
-                throw new CryptographicException("El hash SHA-256 no coincide con SHA256SUMS.");
+            if (!SecretStore.FixedTimeEqualsHex(rel.Sha256, hex))
+                throw new CryptographicException("El hash SHA-256 de la descarga no coincide con el publicado.");
 
-            if (!VerifySignature(fileHash, sigB64, pem))
+            // The signature is what matters: release notes are editable on GitHub, the private key is not.
+            if (!VerifySignature(fileHash, rel.Signature, pem))
                 throw new CryptographicException("La firma digital de la actualización no es válida.");
 
             string verified = Path.Combine(AppPaths.UpdateDir, $"DualScreen-{rel.Version}.exe");
@@ -183,6 +182,18 @@ public sealed class UpdateService : IDisposable
             Set(UpdateState.Error, ex.Message);
             return null;
         }
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex Marker = new(
+        @"<!--\s*dualscreen-update\s+sha256=([0-9a-fA-F]{64})\s+sig=([A-Za-z0-9+/=]+)\s*-->",
+        System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>Splits the release body into visible notes and the hidden hash/signature marker.</summary>
+    public static (string notes, string? sha256, string? signature) ParseUpdateMarker(string body)
+    {
+        var m = Marker.Match(body);
+        if (!m.Success) return (body.Trim(), null, null);
+        return (Marker.Replace(body, "").Trim(), m.Groups[1].Value.ToLowerInvariant(), m.Groups[2].Value);
     }
 
     /// <summary>Verifies a base64 DER ECDSA P-256 signature (as produced by `openssl dgst -sha256 -sign`) over a SHA-256 hash.</summary>

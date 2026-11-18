@@ -27,11 +27,12 @@ Windows 10/11 de 64 bits solo carga controladores firmados de forma confiable. H
 No hay forma legítima de evitar esto; "ocultarlo" o desactivar protecciones del usuario no es aceptable.
 
 ### Opción A — Firma de prueba (desarrollo / uso personal)
-1. Descarga `DualScreen-driver.zip` de la release (incluye `DualScreenTest.cer`).
+1. Abre DualScreen y pulsa Configuración → Controlador → Instalar una vez (fallará por la firma, pero extrae el
+   paquete). El certificado queda en `%LOCALAPPDATA%\DualScreen\driver\package\DualScreenTest.cer`.
 2. Desactiva Secure Boot en la BIOS/UEFI.
 3. PowerShell como administrador:
    ```powershell
-   .\scripts\install-test-certificate.ps1 -Certificate .\DualScreenTest.cer
+   .\scripts\install-test-certificate.ps1 -Certificate "$env:LOCALAPPDATA\DualScreen\driver\package\DualScreenTest.cer"
    ```
    (Confía en el certificado y ejecuta `bcdedit /set testsigning on`.) Reinicia.
 4. En DualScreen: Configuración → Controlador → Instalar.

@@ -62,7 +62,7 @@ Son valores de referencia, no mediciones de este proyecto: la latencia real se m
 
 ### Actualizaciones
 `UpdateService` consulta `releases/latest` de GitHub cada N horas. La descarga se verifica con
-`SHA256SUMS` **y** una firma ECDSA P‑256 hecha en CI con una clave privada que solo existe como *secret*;
+su SHA‑256 **y** una firma ECDSA P‑256 (ambos en un comentario HTML invisible de las notas de la release) hecha en CI con una clave privada que solo existe como *secret*;
 la clave pública va embebida en el exe. Luego se lanza una **copia temporal del propio exe** en modo
 `--apply-update` (actualizador independiente), que espera a que el proceso viejo termine, renombra
 `DualScreen.exe → DualScreen.exe.old` (Windows permite renombrar un ejecutable en uso), coloca el nuevo,
