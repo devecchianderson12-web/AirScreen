@@ -276,8 +276,25 @@ public sealed class RemoteHost : IDisposable
         }, TaskScheduler.Default);
     }
 
+    /// <summary>Raised when a phone on the same network asks the PC to dial it (no inbound firewall rule needed).</summary>
+    public event Func<IReadOnlyList<System.Net.IPAddress>, int, Task>? DialRequested;
+    private DateTime _lastDial = DateTime.MinValue;
+
     private void HandleSignal(string from, JsonObject data)
     {
+        if ((string?)data["kind"] == "dial")
+        {
+            // Only private addresses and unprivileged ports, at most one dial every 2 s: a forged request can
+            // at worst make the PC open a TLS-server connection to a LAN address, which reveals nothing.
+            if (DateTime.UtcNow - _lastDial < TimeSpan.FromSeconds(2)) return;
+            _lastDial = DateTime.UtcNow;
+            int port = (int?)data["port"] ?? 0;
+            var addrs = (data["addrs"] as JsonArray ?? new JsonArray())
+                .Select(a => System.Net.IPAddress.TryParse((string?)a, out var ip) ? ip : null)
+                .Where(ip => ip != null && IsPrivate(ip)).Take(4).ToList();
+            if (port is > 1024 and < 65536 && addrs.Count > 0) _ = DialRequested?.Invoke(addrs!, port);
+            return;
+        }
         if (!_peers.TryGetValue(from, out var pc)) return;
         switch ((string?)data["kind"])
         {
@@ -294,6 +311,14 @@ public sealed class RemoteHost : IDisposable
                 });
                 break;
         }
+    }
+
+    private static bool IsPrivate(System.Net.IPAddress ip)
+    {
+        if (ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) return false;
+        byte[] b = ip.GetAddressBytes();
+        return b[0] == 10 || (b[0] == 172 && b[1] >= 16 && b[1] <= 31) || (b[0] == 192 && b[1] == 168)
+               || (b[0] == 100 && b[1] >= 64 && b[1] <= 127);
     }
 
     private async Task Send(JsonObject msg)

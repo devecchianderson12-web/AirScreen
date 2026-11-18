@@ -245,7 +245,12 @@ public sealed class UpdateService : IDisposable
                 WorkingDirectory = AppPaths.UpdateDir,
                 Arguments = $"--apply-update --pid {Environment.ProcessId} --target \"{AppPaths.ExePath}\" --new \"{verifiedFile}\" --token {token}",
             };
-            if (!Updater.IsDirectoryWritable(AppPaths.ExeDir)) psi.Verb = "runas";
+            if (!Updater.IsDirectoryWritable(AppPaths.ExeDir))
+            {
+                // DualScreen never asks for administrator rights to update: the exe must live in a writable folder.
+                Set(UpdateState.Error, $"No se puede escribir en {AppPaths.ExeDir}. Mueve DualScreen.exe a una carpeta tuya (por ejemplo Descargas o Escritorio) para actualizar.");
+                return false;
+            }
             Process.Start(psi);
             Log.Info("Updater launched");
             return true;

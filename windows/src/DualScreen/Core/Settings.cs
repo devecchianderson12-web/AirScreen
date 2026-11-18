@@ -14,7 +14,7 @@ public sealed class AppSettings
 {
     /// <summary>Schema version for migrations of settings.json.</summary>
     public int SettingsVersion { get; set; }
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
 
     public DisplayMode Mode { get; set; } = DisplayMode.Extended;
     /// <summary>"auto" = phone's native resolution, otherwise "WIDTHxHEIGHT".</summary>
@@ -29,7 +29,11 @@ public sealed class AppSettings
     public int MaxBitrateMbps { get; set; } = 0;
 
     public int LanPort { get; set; } = AppInfo.DefaultLanPort;
-    public bool LanEnabled { get; set; } = true;
+    /// <summary>
+    /// Listen for incoming LAN connections. Off by default: listening makes Windows Firewall show its
+    /// "allow access" prompt (administrator). By default the PC dials the phone instead (reverse connection).
+    /// </summary>
+    public bool LanEnabled { get; set; } = false;
     public bool RemoteEnabled { get; set; } = true;
     public string SignalingUrl { get; set; } = "";
     public string StunUrls { get; set; } = "stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302";
@@ -75,12 +79,9 @@ public static class SettingsStore
             if (File.Exists(AppPaths.SettingsFile))
             {
                 var s = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(AppPaths.SettingsFile), Json.Options) ?? new AppSettings();
-                if (s.SettingsVersion < AppSettings.CurrentVersion)
-                {
-                    // v0.1.0 shipped with remote connections off; they are now on by default (zero-setup broker).
-                    s.RemoteEnabled = true;
-                    s.SettingsVersion = AppSettings.CurrentVersion;
-                }
+                if (s.SettingsVersion < 2) s.RemoteEnabled = true; // v0.1.0 shipped with remote off
+                if (s.SettingsVersion < 3) s.LanEnabled = false;   // v0.1.1 listened by default (firewall prompt)
+                s.SettingsVersion = AppSettings.CurrentVersion;
                 return s;
             }
         }

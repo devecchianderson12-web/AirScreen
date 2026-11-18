@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -63,7 +64,34 @@ public sealed class LanServer : IDisposable
         }
     }
 
-    private async Task HandleClient(TcpClient client, CancellationToken ct)
+    /// <summary>
+    /// Reverse LAN connection: the phone listens and the PC dials out. Outbound connections are never blocked by
+    /// Windows Firewall, so this works without any firewall rule or administrator rights. Roles stay the same
+    /// (the PC is still the TLS server and the phone pins its certificate).
+    /// </summary>
+    public async Task<bool> DialAsync(IReadOnlyList<IPAddress> addresses, int port)
+    {
+        foreach (var addr in addresses)
+        {
+            var client = new TcpClient(addr.AddressFamily);
+            try
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                await client.ConnectAsync(addr, port, cts.Token).ConfigureAwait(false);
+                Log.Info($"Reverse LAN connection to {addr}:{port}");
+                _ = HandleClient(client, CancellationToken.None, "LAN (TLS/TCP, PC → teléfono)");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Info($"Reverse dial {addr}:{port} failed: {ex.Message}");
+                client.Dispose();
+            }
+        }
+        return false;
+    }
+
+    private async Task HandleClient(TcpClient client, CancellationToken ct, string transport = "LAN (TLS/TCP)")
     {
         string remote = client.Client.RemoteEndPoint?.ToString() ?? "?";
         try
@@ -82,7 +110,7 @@ public sealed class LanServer : IDisposable
                 EnabledSslProtocols = SslProtocols.None, // OS default: TLS 1.3 on Windows 11, 1.2 on Windows 10
                 CertificateRevocationCheckMode = System.Security.Cryptography.X509Certificates.X509RevocationMode.NoCheck,
             }, hsTimeout.Token).ConfigureAwait(false);
-            await _onStream(ssl, "LAN (TLS/TCP)", remote).ConfigureAwait(false);
+            await _onStream(ssl, transport, remote).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

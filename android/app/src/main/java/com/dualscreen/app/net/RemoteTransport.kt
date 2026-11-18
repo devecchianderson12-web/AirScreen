@@ -254,6 +254,31 @@ class RemoteTransport private constructor(
             return RemoteTransport(ws, mqtt, peer, dc, pipeIn, fingerprint!!)
         }
 
+        /**
+         * Asks the PC (through the MQTT signaling channel) to open a TCP connection to this phone at
+         * [addresses]:[port]. Returns false if the signaling channel could not be reached in time.
+         */
+        fun requestDial(signalingUrl: String, hostId: String, addresses: List<String>, port: Int, timeoutSec: Long = 5): Boolean {
+            if (!signalingUrl.startsWith("mqtt+")) return false
+            val peerId = Protocol.hex(ByteArray(12).also { SecureRandom().nextBytes(it) })
+            val sent = CountDownLatch(1)
+            var client: MqttWs? = null
+            client = MqttWs(http,
+                onConnected = {
+                    val msg = JSONObject().put("t", "signal").put("from", peerId)
+                        .put("data", JSONObject().put("kind", "dial").put("addrs", JSONArray(addresses)).put("port", port))
+                    client!!.publish("dualscreen/v1/h/$hostId", msg.toString().toByteArray())
+                    sent.countDown()
+                },
+                onMessage = { _, _ -> },
+                onFailure = { sent.countDown() })
+            client.connect(signalingUrl, "ds-d-$peerId")
+            val ok = sent.await(timeoutSec, TimeUnit.SECONDS)
+            Thread.sleep(300) // let the PUBLISH leave before closing
+            client.close()
+            return ok
+        }
+
         /** Verifies the offer signature (ECDSA P-256, P1363 r||s) and the pinned certificate. Returns the cert fingerprint. */
         private fun verifyOffer(sdp: String, certB64: String, sigB64: String, expected: String?): String? = runCatching {
             val der = Base64.decode(certB64, Base64.DEFAULT)

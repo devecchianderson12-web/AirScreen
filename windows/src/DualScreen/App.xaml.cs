@@ -57,10 +57,6 @@ public partial class App : Application
         else if (Array.IndexOf(Args, "--post-update") >= 0)
             _tray.ShowNotification("DualScreen actualizado", $"Ahora usas la versión {AppInfo.VersionString}.");
 
-        if (SettingsStore.Current.LanEnabled && !Firewall.IsAllowed())
-            _tray.ShowNotification("Permitir conexiones Wi-Fi",
-                "El firewall de Windows bloquea las conexiones del teléfono en la red local. Haz clic para permitirlas.", "home");
-
         // Starts silently in the tray. The window is only opened on demand.
         Log.Info($"DualScreen {AppInfo.VersionString} started (data: {AppPaths.DataDir})");
     }

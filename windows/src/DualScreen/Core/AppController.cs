@@ -61,6 +61,10 @@ public sealed class AppController : IDisposable
         Remote = new RemoteHost(Identity, OnIncomingStream);
         Updates = new Update.UpdateService();
         Remote.StatusChanged += RaiseChanged;
+        Remote.DialRequested += async (addrs, port) =>
+        {
+            if (!await Lan.DialAsync(addrs, port).ConfigureAwait(false)) Log.Info("Reverse LAN dial failed on every address");
+        };
         Pairing.Changed += RaiseChanged;
     }
 

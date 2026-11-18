@@ -81,16 +81,6 @@
                                 </Grid>
                             </Border>
 
-                            <Border x:Name="FirewallCard" Style="{StaticResource Card}" Margin="0,8,0,0" Visibility="Collapsed" BorderBrush="{StaticResource WarningBrush}">
-                                <Grid>
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                                    <TextBlock Text="&#xE83D;" Style="{StaticResource Icon}" Foreground="{StaticResource WarningBrush}" Margin="0,0,12,0"/>
-                                    <TextBlock Grid.Column="1" Style="{StaticResource CaptionText}" VerticalAlignment="Center"
-                                               Text="El firewall de Windows bloquea las conexiones por Wi-Fi. Permítelas para la menor latencia (la conexión remota sigue funcionando)."/>
-                                    <Button Grid.Column="2" Content="Permitir" Style="{StaticResource AccentButton}" Click="AllowFirewall_Click" Margin="12,0,0,0"/>
-                                </Grid>
-                            </Border>
-
                             <TextBlock Text="Transmisión" Style="{StaticResource SubtitleText}"/>
                             <UniformGrid Columns="3" x:Name="StatsGrid">
                                 <Border Style="{StaticResource Card}" Margin="0,0,4,4"><StackPanel>
@@ -293,7 +283,7 @@
                             <TextBlock Text="Red local" Style="{StaticResource SubtitleText}"/>
                             <Border Style="{StaticResource Card}"><DockPanel>
                                 <CheckBox x:Name="LanToggle" DockPanel.Dock="Right" Style="{StaticResource ToggleSwitch}" Click="Network_Changed"/>
-                                <TextBlock Text="Aceptar conexiones por Wi-Fi / LAN" VerticalAlignment="Center"/>
+                                <StackPanel><TextBlock Text="Aceptar conexiones entrantes por Wi-Fi / LAN"/><TextBlock Text="Normalmente no hace falta: el PC se conecta al teléfono. Actívalo solo sin Internet (Windows pedirá permiso del firewall)." Style="{StaticResource CaptionText}"/></StackPanel>
                             </DockPanel></Border>
                             <Border Style="{StaticResource Card}"><DockPanel>
                                 <TextBox x:Name="PortBox" DockPanel.Dock="Right" Width="120" LostFocus="Network_Changed"/>

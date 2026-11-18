@@ -7,7 +7,10 @@
   - **Clic derecho**: Abrir, Conectar dispositivo, Desconectar dispositivo, Buscar actualizaciones, Configuración, Salir.
 - Cerrar la ventana no cierra DualScreen; usa *Salir* en el menú.
 - Modo portátil total: crea un archivo vacío `portable.txt` junto al exe y los datos se guardarán en `DualScreenData\`.
-- La primera vez, Windows preguntará si permites el acceso a la red: permite **redes privadas**.
+- DualScreen no pide permisos de administrador. La única excepción, opcional y solo si tú la pulsas, es instalar
+  el controlador del modo extendido (Windows exige administrador para cualquier controlador).
+- Conexión: el teléfono escanea el QR; el PC se conecta al teléfono por la red local (sin reglas de firewall) y,
+  si están en redes distintas, por WebRTC.
 
 ### Panel
 - **Inicio**: estado, teléfono conectado, resolución, frecuencia, calidad, latencia estimada, velocidad y códec;

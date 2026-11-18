@@ -26,7 +26,7 @@ data class PairInfo(
                 port = u.getQueryParameter("p")?.toIntOrNull() ?: Protocol.LAN_PORT,
                 fingerprint = fp,
                 code = code,
-                signalingUrl = u.getQueryParameter("s")?.takeIf { it.startsWith("wss://") || it.startsWith("ws://") },
+                signalingUrl = u.getQueryParameter("s")?.takeIf { s -> listOf("wss://", "ws://", "mqtt+wss://", "mqtt+ws://").any { s.startsWith(it) } },
             )
         }.getOrNull()
     }

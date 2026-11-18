@@ -76,8 +76,8 @@ actualizador se eleva con UAC.
 | Ejecutar DualScreen.exe, modo espejo, red, actualizaciones | Usuario normal |
 | Instalar/desinstalar el controlador | Administrador (un aviso UAC; proceso auxiliar `--driver install`) |
 | Controlador en Windows sin modo de prueba | Firma de Microsoft (ver DRIVER.md) |
-| Actualizar si el exe está en `Program Files` | Administrador (UAC automático) |
-| Firewall de Windows | Windows pedirá permitir el puerto la primera vez (red privada) |
+| Actualizar si el exe está en `Program Files` | No se eleva: pide mover el exe a una carpeta del usuario |
+| Firewall de Windows | Nada por defecto: el PC se conecta al teléfono (conexión inversa) o usa WebRTC; la escucha entrante es opcional |
 
 ### Consumo en reposo
 Sin teléfono conectado no existe dispositivo D3D ni codificador; la ventana se destruye al cerrarla (no se

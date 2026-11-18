@@ -27,10 +27,9 @@ interface Transport {
  * When [expectedFingerprint] is null (first pairing by typed code), the certificate is accepted and its
  * fingerprint is bound into the pairing proof, so a MITM cannot complete the pairing without the code.
  */
-class LanTransport private constructor(private val socket: SSLSocket, override val fingerprint: String, address: String) : Transport {
+class LanTransport private constructor(private val socket: SSLSocket, override val fingerprint: String, override val description: String) : Transport {
     override val input: InputStream = socket.inputStream
     override val output: OutputStream = socket.outputStream
-    override val description = "Wi-Fi / LAN ($address)"
 
     override fun close() {
         runCatching { socket.close() }
@@ -39,6 +38,24 @@ class LanTransport private constructor(private val socket: SSLSocket, override v
     companion object {
         @Throws(IOException::class)
         fun connect(address: String, port: Int, expectedFingerprint: String?, timeoutMs: Int = 2500): LanTransport {
+            val raw = Socket()
+            raw.connect(InetSocketAddress(address, port), timeoutMs)
+            return secure(raw, address, port, expectedFingerprint, "Wi-Fi / LAN ($address)")
+        }
+
+        /**
+         * Reverse connection: the phone listens on a random port, asks the PC (through the signaling channel) to
+         * dial it, and runs the TLS *client* side on the accepted socket. Outbound connections from the PC are not
+         * blocked by Windows Firewall, so no rule or administrator rights are needed on the PC.
+         */
+        @Throws(IOException::class)
+        fun acceptReverse(server: java.net.ServerSocket, expectedFingerprint: String): LanTransport {
+            val raw = server.accept()
+            val address = raw.inetAddress.hostAddress ?: "?"
+            return secure(raw, address, raw.port, expectedFingerprint, "Wi-Fi / LAN ($address, PC → teléfono)")
+        }
+
+        private fun secure(raw: Socket, address: String, port: Int, expectedFingerprint: String?, description: String): LanTransport {
             var seen: String? = null
             val tm = object : X509TrustManager {
                 override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) = throw CertificateException()
@@ -51,15 +68,13 @@ class LanTransport private constructor(private val socket: SSLSocket, override v
                 override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
             }
             val ctx = SSLContext.getInstance("TLS").apply { init(null, arrayOf(tm), SecureRandom()) }
-            val raw = Socket()
             raw.tcpNoDelay = true
             raw.receiveBufferSize = 4 * 1024 * 1024
             raw.keepAlive = true
-            raw.connect(InetSocketAddress(address, port), timeoutMs)
             val ssl = ctx.socketFactory.createSocket(raw, address, port, true) as SSLSocket
             ssl.soTimeout = 15000 // the PC pings every second; 15 s of silence means the link is dead
             ssl.startHandshake()
-            return LanTransport(ssl, seen ?: throw IOException("no certificate"), address)
+            return LanTransport(ssl, seen ?: throw IOException("no certificate"), description)
         }
     }
 }

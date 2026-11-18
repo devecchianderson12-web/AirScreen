@@ -168,6 +168,15 @@ object StreamHub {
 
     class FatalError(msg: String) : IOException(msg)
 
+    private fun localAddresses(): List<String> = runCatching {
+        java.net.NetworkInterface.getNetworkInterfaces().toList()
+            .filter { it.isUp && !it.isLoopback }
+            .flatMap { it.inetAddresses.toList() }
+            .filterIsInstance<java.net.Inet4Address>()
+            .filter { it.isSiteLocalAddress || it.hostAddress?.startsWith("100.") == true }
+            .mapNotNull { it.hostAddress }
+    }.getOrDefault(emptyList())
+
     /** Turns socket errors into hints the user can act on. */
     private fun explain(e: Exception): String = when (e) {
         is java.net.SocketTimeoutException -> "sin respuesta (¿otra red, o el firewall de Windows bloquea DualScreen?)"
@@ -185,6 +194,21 @@ object StreamHub {
             }
             return null
         }
+        /** PC dials the phone: works even when Windows Firewall blocks incoming connections (no admin needed). */
+        fun tryReverse(url: String?, hostId: String, fp: String): Transport? {
+            if (url == null || !url.startsWith("mqtt+")) return null
+            val addrs = localAddresses()
+            if (addrs.isEmpty()) return null
+            return try {
+                java.net.ServerSocket(0).use { server ->
+                    server.soTimeout = 7000
+                    if (!RemoteTransport.requestDial(url, hostId, addrs, server.localPort)) {
+                        errors += "conexión inversa: sin acceso al servidor de señalización"; return null
+                    }
+                    LanTransport.acceptReverse(server, fp)
+                }
+            } catch (e: Exception) { errors += "conexión inversa: ${explain(e)}"; null }
+        }
         fun tryRemote(url: String?, hostId: String, fp: String): Transport? {
             if (url == null) { errors += "conexión remota: no configurada en el PC"; return null }
             return try { RemoteTransport.connect(ctx, url, hostId, fp) } catch (e: Exception) { errors += "remota: ${e.message}"; null }
@@ -197,6 +221,7 @@ object StreamHub {
                 // Prefer a fresh discovery answer (the PC's IP may have changed).
                 val found = runCatching { Discovery.scan(ctx, 800) }.getOrDefault(emptyList()).filter { it.hostId == h.hostId }
                 tryLan(found.map { it.address } + h.addresses, found.firstOrNull()?.port ?: h.port, h.fingerprint)
+                    ?: tryReverse(h.signalingUrl, h.hostId, h.fingerprint)
                     ?: tryRemote(h.signalingUrl, h.hostId, h.fingerprint)
                     ?: throw IOException("No se encontró ${h.name}." + details())
             }
@@ -204,6 +229,7 @@ object StreamHub {
                 val i = target.info
                 hostName = i.name
                 tryLan(i.addresses, i.port, i.fingerprint)
+                    ?: tryReverse(i.signalingUrl, i.hostId, i.fingerprint)
                     ?: tryRemote(i.signalingUrl, i.hostId, i.fingerprint)
                     ?: throw FatalError("No se pudo conectar con ${i.name}." + details())
             }

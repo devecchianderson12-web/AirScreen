@@ -64,7 +64,6 @@ public static class DriverInstaller
             {
                 "install" => Install(),
                 "uninstall" => Uninstall(),
-                "firewall" => Firewall.Configure(),
                 _ => throw new ArgumentException("Acción desconocida: " + action),
             };
             File.WriteAllText(resultFile, msg);

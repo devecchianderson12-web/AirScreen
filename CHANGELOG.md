@@ -2,6 +2,15 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones [SemVer](https://semver.org/lang/es/).
 
+## [0.1.2] - 2026-11-18
+
+### Corregido
+- El QR no transmitía la dirección de la conexión remota al teléfono (el teléfono descartaba las URL `mqtt+wss://`).
+
+### Cambiado
+- Conexión inversa: el PC se conecta al teléfono, así el firewall de Windows nunca bloquea la conexión y no hace falta ninguna regla ni permiso de administrador.
+- DualScreen ya no pide permisos de administrador por sí solo: se quitó el botón de firewall, la escucha de conexiones entrantes viene desactivada (evita el aviso del firewall) y el actualizador ya no se eleva.
+
 ## [0.1.1] - 2026-11-18
 
 ### Corregido
