@@ -2,7 +2,7 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones [SemVer](https://semver.org/lang/es/).
 
-## [0.1.0] - Sin publicar
+## [0.1.0] - 2026-11-18
 
 ### Añadido
 - Aplicación de Windows portable (`DualScreen.exe`) con icono en la bandeja, panel estilo Windows 11 (Mica, modo oscuro) y menú contextual.

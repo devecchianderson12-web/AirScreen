@@ -1,10 +1,15 @@
 name: Release
 
-# Push a tag like v1.2.3 (see docs/RELEASING.md). Produces and publishes:
-#   DualScreen.exe, DualScreen.exe.sig, DualScreen.apk, DualScreen-driver.zip, SHA256SUMS
+# Push a tag like v1.2.3, or run it from the Actions tab ("Run workflow", enter 1.2.3).
+# Produces and publishes: DualScreen.exe, DualScreen.exe.sig, DualScreen.apk, DualScreen-driver.zip, SHA256SUMS
 on:
   push:
     tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (X.Y.Z). The tag vX.Y.Z is created on the selected branch."
+        required: true
 
 permissions:
   contents: write
@@ -14,6 +19,15 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
+      - name: Resolve version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then v="${INPUT_VERSION#v}"; else v="${GITHUB_REF_NAME#v}"; fi
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid version: $v"; exit 1; }
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=v$v" >> "$GITHUB_ENV"
       - uses: microsoft/setup-msbuild@v2
       - name: Build driver
         run: msbuild virtual-display-driver/DualScreenIdd.sln /p:Configuration=Release /p:Platform=x64 /m
@@ -33,6 +47,15 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
+      - name: Resolve version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then v="${INPUT_VERSION#v}"; else v="${GITHUB_REF_NAME#v}"; fi
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid version: $v"; exit 1; }
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=v$v" >> "$GITHUB_ENV"
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
@@ -49,7 +72,7 @@ jobs:
       - name: Publish DualScreen.exe
         shell: pwsh
         run: |
-          $version = "${{ github.ref_name }}".TrimStart("v")
+          $version = $env:VERSION
           dotnet publish windows/src/DualScreen/DualScreen.csproj -c Release -o out -p:Version=$version -p:DriverPackageDir="$PWD\build\driver\"
       - uses: actions/upload-artifact@v4
         with:
@@ -60,6 +83,15 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Resolve version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then v="${INPUT_VERSION#v}"; else v="${GITHUB_REF_NAME#v}"; fi
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid version: $v"; exit 1; }
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=v$v" >> "$GITHUB_ENV"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -78,7 +110,7 @@ jobs:
           else
             echo "::warning::ANDROID_KEYSTORE_BASE64 not set - APK will be signed with the debug key (cannot be updated in place later)."
           fi
-          ./gradlew --no-daemon assembleRelease -PappVersion="${GITHUB_REF_NAME#v}"
+          ./gradlew --no-daemon assembleRelease -PappVersion="$VERSION"
           cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/DualScreen.apk"
       - uses: actions/upload-artifact@v4
         with:
@@ -90,6 +122,15 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Resolve version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then v="${INPUT_VERSION#v}"; else v="${GITHUB_REF_NAME#v}"; fi
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid version: $v"; exit 1; }
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=v$v" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -114,5 +155,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ./scripts/release-notes.sh "${GITHUB_REF_NAME#v}" > notes.md
-          gh release create "$GITHUB_REF_NAME" release/* --title "DualScreen $GITHUB_REF_NAME" --notes-file notes.md
+          ./scripts/release-notes.sh "$VERSION" > notes.md
+          gh release create "$RELEASE_TAG" release/* --target "$GITHUB_SHA" --title "DualScreen $RELEASE_TAG" --notes-file notes.md

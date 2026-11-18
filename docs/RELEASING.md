@@ -35,6 +35,8 @@
    ./scripts/new-release.sh X.Y.Z
    ```
    Actualiza la versión, crea el commit y la etiqueta `vX.Y.Z` y los sube.
+   Alternativa desde el navegador: pestaña *Actions* → *Release* → *Run workflow* → versión `X.Y.Z`
+   (la etiqueta se crea al publicar).
 3. `release.yml` compila el controlador, el exe (con el controlador embebido), la APK, genera `SHA256SUMS`,
    firma el exe, verifica la firma con la clave pública versionada y publica la release con:
    `DualScreen.exe`, `DualScreen.exe.sig`, `DualScreen.apk`, `DualScreen-driver.zip`, `SHA256SUMS`.
