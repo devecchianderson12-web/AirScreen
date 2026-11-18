@@ -1,0 +1,7 @@
+{
+  "owner": "your-github-user",
+  "repo": "DualScreen",
+  "exeAssetName": "DualScreen.exe",
+  "defaultSignalingUrl": "",
+  "updateCheckHours": 6
+}

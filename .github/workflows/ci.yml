@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  windows-app:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Unit tests
+        run: dotnet test windows/tests/DualScreen.Tests/DualScreen.Tests.csproj -c Release
+      - name: Build DualScreen.exe (without driver package)
+        run: dotnet publish windows/src/DualScreen/DualScreen.csproj -c Release -o out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DualScreen-ci-exe
+          path: out/DualScreen.exe
+
+  driver:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - name: Build Indirect Display Driver
+        run: msbuild virtual-display-driver/DualScreenIdd.sln /p:Configuration=Release /p:Platform=x64 /m
+
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew --no-daemon assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DualScreen-ci-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+
+  signaling:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: Test signaling server
+        working-directory: signaling-server
+        run: go vet ./... && go test ./...

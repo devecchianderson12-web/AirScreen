@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DualScreen</string>
+    <string name="notif_channel">Transmisión de pantalla</string>
+    <string name="notif_streaming">Usando el teléfono como monitor de %1$s</string>
+</resources>

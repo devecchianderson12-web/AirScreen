@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingTop="24dp"
+        android:paddingBottom="32dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:layout_marginBottom="24dp">
+            <ImageView
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@mipmap/ic_launcher"
+                android:contentDescription="@string/app_name" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="14dp"
+                android:text="@string/app_name"
+                android:textColor="@color/text"
+                android:textSize="26sp"
+                android:fontFamily="sans-serif-medium" />
+        </LinearLayout>
+
+        <!-- Status -->
+        <LinearLayout style="@style/Card" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
+                <View android:id="@+id/statusDot" android:layout_width="10dp" android:layout_height="10dp" android:background="@drawable/dot" />
+                <TextView android:id="@+id/statusText" style="@style/Value" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp" android:text="Desconectado" android:textSize="20sp" />
+            </LinearLayout>
+            <TextView android:id="@+id/statusDetail" style="@style/Label" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="6dp" android:text="Abre DualScreen en tu PC con Windows." />
+            <Button android:id="@+id/connectButton" style="@style/Button.Accent" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="18dp" android:text="Conectar" />
+        </LinearLayout>
+
+        <!-- Live info (while connected) -->
+        <LinearLayout android:id="@+id/infoCard" style="@style/Card" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" android:visibility="gone">
+            <TextView style="@style/Label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Información de la conexión" />
+            <GridLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:columnCount="2" android:layout_marginTop="8dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" style="@style/Label" android:text="Resolución" android:layout_columnWeight="1" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:id="@+id/infoResolution" style="@style/Value" android:text="—" android:layout_columnWeight="1" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" style="@style/Label" android:text="FPS actuales" android:layout_marginTop="8dp" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:id="@+id/infoFps" style="@style/Value" android:text="—" android:layout_marginTop="8dp" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" style="@style/Label" android:text="Latencia estimada" android:layout_marginTop="8dp" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:id="@+id/infoLatency" style="@style/Value" android:text="—" android:layout_marginTop="8dp" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" style="@style/Label" android:text="Velocidad" android:layout_marginTop="8dp" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:id="@+id/infoBitrate" style="@style/Value" android:text="—" android:layout_marginTop="8dp" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" style="@style/Label" android:text="Conexión" android:layout_marginTop="8dp" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:id="@+id/infoTransport" style="@style/Value" android:text="—" android:layout_marginTop="8dp" />
+            </GridLayout>
+            <Button android:id="@+id/showButton" style="@style/Button.Tonal" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="14dp" android:text="Mostrar pantalla" />
+        </LinearLayout>
+
+        <!-- Discovered PCs -->
+        <TextView android:id="@+id/foundTitle" style="@style/Label" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" android:layout_marginBottom="8dp" android:text="PCs en esta red" />
+        <LinearLayout android:id="@+id/foundList" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" />
+        <TextView android:id="@+id/foundEmpty" style="@style/Label" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp" android:text="Buscando…" android:textColor="@color/text3" />
+
+        <!-- Pairing -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:orientation="horizontal">
+            <Button android:id="@+id/scanButton" style="@style/Button.Tonal" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:layout_marginEnd="6dp" android:text="Escanear QR" />
+            <Button android:id="@+id/codeButton" style="@style/Button.Tonal" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:layout_marginStart="6dp" android:text="Introducir código" />
+        </LinearLayout>
+
+        <!-- Quality -->
+        <TextView style="@style/Label" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="24dp" android:layout_marginBottom="8dp" android:text="Calidad de imagen" />
+        <RadioGroup android:id="@+id/qualityGroup" style="@style/Card" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+            <RadioButton android:id="@+id/qAuto" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Automática (adaptativa)" android:textColor="@color/text" android:buttonTint="@color/accent" android:minHeight="44dp" />
+            <RadioButton android:id="@+id/qMax" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Máxima" android:textColor="@color/text" android:buttonTint="@color/accent" android:minHeight="44dp" />
+            <RadioButton android:id="@+id/qHigh" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Alta" android:textColor="@color/text" android:buttonTint="@color/accent" android:minHeight="44dp" />
+            <RadioButton android:id="@+id/qBalanced" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Equilibrada" android:textColor="@color/text" android:buttonTint="@color/accent" android:minHeight="44dp" />
+            <RadioButton android:id="@+id/qSaver" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Ahorro de datos" android:textColor="@color/text" android:buttonTint="@color/accent" android:minHeight="44dp" />
+        </RadioGroup>
+
+        <!-- Paired PCs -->
+        <TextView style="@style/Label" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="16dp" android:layout_marginBottom="8dp" android:text="PCs emparejados" />
+        <LinearLayout android:id="@+id/pairedList" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" />
+        <TextView android:id="@+id/pairedEmpty" style="@style/Label" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="Ninguno todavía. Escanea el QR que muestra DualScreen en Windows." android:textColor="@color/text3" />
+
+        <TextView android:id="@+id/versionText" style="@style/Label" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="28dp" android:gravity="center" android:textColor="@color/text3" />
+    </LinearLayout>
+</ScrollView>

@@ -1,0 +1,69 @@
+;
+; DualScreenIdd.inf — DualScreen Indirect Display Driver (UMDF 2 / IddCx)
+;
+[Version]
+PnpLockDown=1
+Signature="$Windows NT$"
+ClassGUID={4d36e968-e325-11ce-bfc1-08002be10318}
+Class=Display
+ClassVer=2.0
+Provider=%ManufacturerName%
+CatalogFile=DualScreenIdd.cat
+DriverVer=
+
+[Manufacturer]
+%ManufacturerName%=Standard,NT$ARCH$.10.0...17763
+
+[Standard.NT$ARCH$.10.0...17763]
+%DeviceName%=DualScreen_Install, Root\DualScreenIdd
+
+[SourceDisksFiles]
+DualScreenIdd.dll=1
+
+[SourceDisksNames]
+1 = %DiskName%
+
+[DestinationDirs]
+UMDriverCopy=13
+
+[UMDriverCopy]
+DualScreenIdd.dll
+
+[DualScreen_Install.NT]
+CopyFiles=UMDriverCopy
+
+[DualScreen_Install.NT.hw]
+AddReg=DualScreen_HardwareDeviceSettings
+
+[DualScreen_HardwareDeviceSettings]
+HKR,, "UpperFilters", %REG_MULTI_SZ%, "IndirectKmd"
+HKR, "WUDF", "DeviceGroupId", %REG_SZ%, "DualScreenIddGroup"
+
+[DualScreen_Install.NT.Services]
+AddService=WUDFRd,0x000001fa,WUDFRD_ServiceInstall
+
+[DualScreen_Install.NT.Wdf]
+UmdfService=DualScreenIdd,DualScreenIdd_Install
+UmdfServiceOrder=DualScreenIdd
+UmdfKernelModeClientPolicy=AllowKernelModeClients
+UmdfHostProcessSharing=ProcessSharingDisabled
+
+[DualScreenIdd_Install]
+UmdfLibraryVersion=$UMDFVERSION$
+ServiceBinary=%13%\DualScreenIdd.dll
+UmdfExtensions=IddCx0102
+
+[WUDFRD_ServiceInstall]
+DisplayName=%WudfRdDisplayName%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%12%\WUDFRd.sys
+
+[Strings]
+ManufacturerName="DualScreen"
+DiskName="DualScreen Installation Disk"
+DeviceName="DualScreen Virtual Display"
+WudfRdDisplayName="Windows Driver Foundation - User-mode Driver Framework Reflector"
+REG_MULTI_SZ=0x00010000
+REG_SZ=0x00000000

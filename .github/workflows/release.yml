@@ -1,0 +1,119 @@
+name: Release
+
+# Push a tag like v1.2.3 (see docs/RELEASING.md). Produces and publishes:
+#   DualScreen.exe, DualScreen.exe.sig, DualScreen.apk, DualScreen-driver.zip, SHA256SUMS
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  driver:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - name: Build driver
+        run: msbuild virtual-display-driver/DualScreenIdd.sln /p:Configuration=Release /p:Platform=x64 /m
+      - name: Sign driver package
+        shell: pwsh
+        env:
+          DRIVER_CERT_PFX: ${{ secrets.DRIVER_CERT_PFX }}
+          DRIVER_CERT_PASSWORD: ${{ secrets.DRIVER_CERT_PASSWORD }}
+        run: ./scripts/sign-driver.ps1 -PackageDir virtual-display-driver/build/x64/Release/DualScreenIdd
+      - uses: actions/upload-artifact@v4
+        with:
+          name: driver
+          path: virtual-display-driver/build/x64/Release/DualScreenIdd/*
+
+  windows:
+    needs: driver
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - uses: actions/download-artifact@v4
+        with:
+          name: driver
+          path: build/driver
+      - name: Check update public key
+        shell: pwsh
+        run: |
+          if (-not (Test-Path config/update-public-key.pem) -or -not (Select-String -Path config/update-public-key.pem -Pattern "BEGIN PUBLIC KEY" -Quiet)) {
+            throw "config/update-public-key.pem is missing: run scripts/generate-update-keys.sh and commit the public key"
+          }
+      - name: Publish DualScreen.exe
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          dotnet publish windows/src/DualScreen/DualScreen.csproj -c Release -o out -p:Version=$version -p:DriverPackageDir="$PWD\build\driver\"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exe
+          path: out/DualScreen.exe
+
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - name: Build release APK
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/release.jks"
+          else
+            echo "::warning::ANDROID_KEYSTORE_BASE64 not set - APK will be signed with the debug key (cannot be updated in place later)."
+          fi
+          ./gradlew --no-daemon assembleRelease -PappVersion="${GITHUB_REF_NAME#v}"
+          cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/DualScreen.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: DualScreen.apk
+
+  publish:
+    needs: [driver, windows, android]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Assemble, hash and sign
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir release
+          cp dist/exe/DualScreen.exe release/
+          cp dist/apk/DualScreen.apk release/
+          (cd dist/driver && zip -r ../../release/DualScreen-driver.zip .)
+          if [ -z "$UPDATE_SIGNING_KEY" ]; then echo "UPDATE_SIGNING_KEY secret is required"; exit 1; fi
+          printf '%s\n' "$UPDATE_SIGNING_KEY" > "$RUNNER_TEMP/update.key"
+          ./scripts/sign-update.sh "$RUNNER_TEMP/update.key" release/DualScreen.exe
+          rm -f "$RUNNER_TEMP/update.key"
+          (cd release && sha256sum DualScreen.exe DualScreen.apk DualScreen-driver.zip > SHA256SUMS)
+          ls -l release
+      - name: Verify signature against committed public key
+        run: ./scripts/verify-update.sh config/update-public-key.pem release/DualScreen.exe
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ./scripts/release-notes.sh "${GITHUB_REF_NAME#v}" > notes.md
+          gh release create "$GITHUB_REF_NAME" release/* --title "DualScreen $GITHUB_REF_NAME" --notes-file notes.md

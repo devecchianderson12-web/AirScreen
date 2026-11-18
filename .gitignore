@@ -1,0 +1,25 @@
+# .NET
+bin/
+obj/
+out/
+*.user
+.vs/
+TestResults/
+# Driver
+virtual-display-driver/build/
+virtual-display-driver/obj/
+build/
+# Android
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/keystore.properties
+*.jks
+*.keystore
+# Secrets (never commit)
+update-signing-key.pem
+*.pfx
+# Misc
+.DS_Store
+signaling-server/.env

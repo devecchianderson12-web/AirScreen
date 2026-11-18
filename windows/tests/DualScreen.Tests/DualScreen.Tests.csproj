@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows10.0.22621.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Platform-neutral sources under test (the WPF/Media layers need a Windows desktop). -->
+    <Compile Include="*.cs" />
+    <Compile Include="..\..\src\DualScreen\Core\AppInfo.cs;..\..\src\DualScreen\Core\AppPaths.cs;..\..\src\DualScreen\Core\Log.cs;..\..\src\DualScreen\Core\SecretStore.cs;..\..\src\DualScreen\Core\Settings.cs" />
+    <Compile Include="..\..\src\DualScreen\Net\Protocol.cs;..\..\src\DualScreen\Net\Negotiator.cs;..\..\src\DualScreen\Net\BitrateController.cs;..\..\src\DualScreen\Net\HostIdentity.cs;..\..\src\DualScreen\Net\PairingService.cs" />
+    <Compile Include="..\..\src\DualScreen\Update\UpdateService.cs;..\..\src\DualScreen\Update\Updater.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
+</Project>

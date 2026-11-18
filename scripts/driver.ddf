@@ -1,0 +1,18 @@
+; makecab directive file for Microsoft attestation signing (run from the repository root):
+;   makecab /f scripts\driver.ddf
+.OPTION EXPLICIT
+.Set CabinetFileCountThreshold=0
+.Set FolderFileCountThreshold=0
+.Set FolderSizeThreshold=0
+.Set MaxCabinetSize=0
+.Set MaxDiskFileCount=0
+.Set MaxDiskSize=0
+.Set CompressionType=MSZIP
+.Set Cabinet=on
+.Set Compress=on
+.Set CabinetNameTemplate=DualScreenIdd.cab
+.Set DiskDirectoryTemplate=build
+.Set DestinationDir=DualScreenIdd
+virtual-display-driver\build\x64\Release\DualScreenIdd\DualScreenIdd.inf
+virtual-display-driver\build\x64\Release\DualScreenIdd\DualScreenIdd.dll
+virtual-display-driver\build\x64\Release\DualScreenIdd\DualScreenIdd.cat
