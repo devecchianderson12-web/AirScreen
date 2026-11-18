@@ -222,7 +222,7 @@ public partial class MainWindow : Window
             DockPanel.SetDock(revoke, Dock.Right);
             dock.Children.Add(revoke);
             var info = new StackPanel();
-            var icon = new StackPanel { Orientation = Orientation.Horizontal };
+            var icon = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
             icon.Children.Add(new TextBlock { Text = "", Style = (Style)FindResource("Icon"), Margin = new Thickness(0, 0, 12, 0) });
             info.Children.Add(new TextBlock { Text = d.Name });
             info.Children.Add(new TextBlock
