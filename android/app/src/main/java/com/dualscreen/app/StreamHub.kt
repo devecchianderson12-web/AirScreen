@@ -189,6 +189,7 @@ object StreamHub {
     private fun open(ctx: Context, store: Store, target: Target): Transport {
         val errors = mutableListOf<String>()
         fun tryLan(addresses: List<String>, port: Int, fp: String?): Transport? {
+            set(LinkState.CONNECTING, "Paso 1/3: buscando el PC en la red local…")
             for (a in addresses.distinct()) {
                 try { return LanTransport.connect(a, port, fp) } catch (e: Exception) { errors += "$a: ${explain(e)}" }
             }
@@ -197,6 +198,7 @@ object StreamHub {
         /** PC dials the phone: works even when Windows Firewall blocks incoming connections (no admin needed). */
         fun tryReverse(url: String?, hostId: String, fp: String): Transport? {
             if (url == null || !url.startsWith("mqtt+")) return null
+            set(LinkState.CONNECTING, "Paso 2/3: pidiendo al PC que se conecte al teléfono…")
             val addrs = localAddresses()
             if (addrs.isEmpty()) return null
             return try {
@@ -211,6 +213,7 @@ object StreamHub {
         }
         fun tryRemote(url: String?, hostId: String, fp: String): Transport? {
             if (url == null) { errors += "conexión remota: no configurada en el PC"; return null }
+            set(LinkState.CONNECTING, "Paso 3/3: conectando por Internet (puede tardar hasta 30 s)…")
             return try { RemoteTransport.connect(ctx, url, hostId, fp) } catch (e: Exception) { errors += "remota: ${e.message}"; null }
         }
         fun details() = errors.joinToString("\n• ", prefix = "\n\n• ")
