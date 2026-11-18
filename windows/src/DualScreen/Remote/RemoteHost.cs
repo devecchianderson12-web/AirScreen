@@ -26,11 +26,12 @@ namespace DualScreen.Remote;
 public sealed class RemoteHost : IDisposable
 {
     private readonly HostIdentity _identity;
-    private readonly PairingService _pairing;
     private readonly Func<System.IO.Stream, string, string, Task> _onStream;
     private readonly ConcurrentDictionary<string, RTCPeerConnection> _peers = new();
     private CancellationTokenSource? _cts;
     private ClientWebSocket? _ws;
+    private MqttWsClient? _mqtt;
+    public const string MqttPrefix = "dualscreen/v1/";
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private List<RTCIceServer> _iceServers = new();
 
@@ -38,12 +39,10 @@ public sealed class RemoteHost : IDisposable
     public bool Connected { get; private set; }
     public event Action? StatusChanged;
 
-    public RemoteHost(HostIdentity identity, PairingService pairing, Func<System.IO.Stream, string, string, Task> onStream)
+    public RemoteHost(HostIdentity identity, Func<System.IO.Stream, string, string, Task> onStream)
     {
         _identity = identity;
-        _pairing = pairing;
         _onStream = onStream;
-        _pairing.Changed += () => _ = PublishPairKey();
     }
 
     public void Start()
@@ -65,6 +64,9 @@ public sealed class RemoteHost : IDisposable
         _cts = null;
         try { _ws?.Abort(); } catch { }
         _ws = null;
+        var mqtt = _mqtt;
+        _mqtt = null;
+        if (mqtt != null) _ = mqtt.DisposeAsync().AsTask();
         foreach (var pc in _peers.Values) { try { pc.close(); } catch { } }
         _peers.Clear();
         SetStatus("Desactivado", false);
@@ -85,12 +87,19 @@ public sealed class RemoteHost : IDisposable
             try
             {
                 SetStatus("Conectando al servidor de señalización…", false);
-                using var ws = new ClientWebSocket();
-                ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(20);
-                await ws.ConnectAsync(new Uri(url), ct).ConfigureAwait(false);
-                _ws = ws;
-                backoff = 1;
-                await ReceiveLoop(ws, ct).ConfigureAwait(false);
+                if (MqttWsClient.IsMqttUrl(url))
+                {
+                    await RunMqtt(url, ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    using var ws = new ClientWebSocket();
+                    ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(20);
+                    await ws.ConnectAsync(new Uri(url), ct).ConfigureAwait(false);
+                    _ws = ws;
+                    backoff = 1;
+                    await ReceiveLoop(ws, ct).ConfigureAwait(false);
+                }
             }
             catch (OperationCanceledException) { break; }
             catch (Exception ex)
@@ -101,6 +110,42 @@ public sealed class RemoteHost : IDisposable
             SetStatus($"Sin conexión con el servidor; reintentando en {backoff} s", false);
             try { await Task.Delay(TimeSpan.FromSeconds(backoff), ct).ConfigureAwait(false); } catch { break; }
             backoff = Math.Min(backoff * 2, 60);
+        }
+    }
+
+    /// <summary>
+    /// Zero-setup signaling through a public MQTT broker. The PC listens on dualscreen/v1/h/{hostId}; a phone
+    /// publishes {"t":"join","peerId"} there and listens on dualscreen/v1/p/{peerId}. Messages are mapped onto
+    /// the same handlers used with the DualScreen signaling server.
+    /// </summary>
+    private async Task RunMqtt(string url, CancellationToken ct)
+    {
+        var mqtt = new MqttWsClient();
+        mqtt.Message += (topic, payload) =>
+        {
+            try
+            {
+                var m = JsonNode.Parse(payload)!.AsObject();
+                string? peer = (string?)m["peerId"] ?? (string?)m["from"];
+                if (string.IsNullOrEmpty(peer) || peer.Length > 64) return;
+                switch ((string?)m["t"])
+                {
+                    case "join": _ = Handle(new JsonObject { ["t"] = "peer", ["peerId"] = peer }, ct); break;
+                    case "signal": _ = Handle(new JsonObject { ["t"] = "signal", ["from"] = peer, ["data"] = m["data"]?.DeepClone() }, ct); break;
+                    case "leave": _ = Handle(new JsonObject { ["t"] = "peer-left", ["peerId"] = peer }, ct); break;
+                }
+            }
+            catch (Exception ex) { Log.Warn("Bad MQTT signaling message: " + ex.Message); }
+        };
+        await mqtt.ConnectAsync(url, "ds-h-" + Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(8)), ct).ConfigureAwait(false);
+        await mqtt.SubscribeAsync(MqttPrefix + "h/" + _identity.HostId).ConfigureAwait(false);
+        _mqtt = mqtt;
+        await Handle(new JsonObject { ["t"] = "registered" }, ct).ConfigureAwait(false);
+        try { await mqtt.Completion.ConfigureAwait(false); }
+        finally
+        {
+            if (ReferenceEquals(_mqtt, mqtt)) _mqtt = null;
+            await mqtt.DisposeAsync().ConfigureAwait(false);
         }
     }
 
@@ -140,7 +185,6 @@ public sealed class RemoteHost : IDisposable
             case "registered":
                 _iceServers = ParseIceServers(msg["iceServers"] as JsonArray);
                 SetStatus("Disponible para conexiones remotas", true);
-                await PublishPairKey().ConfigureAwait(false);
                 break;
             case "peer":
                 await StartPeer((string)msg["peerId"]!, ct).ConfigureAwait(false);
@@ -180,13 +224,6 @@ public sealed class RemoteHost : IDisposable
             }
         }
         return list;
-    }
-
-    private async Task PublishPairKey()
-    {
-        if (_ws?.State != WebSocketState.Open || !Connected) return;
-        try { await Send(new JsonObject { ["t"] = "set-pair-key", ["key"] = _pairing.CurrentCodeRendezvousKey }).ConfigureAwait(false); }
-        catch (Exception ex) { Log.Warn("Publishing pair key failed: " + ex.Message); }
     }
 
     private async Task StartPeer(string peerId, CancellationToken ct)
@@ -261,6 +298,14 @@ public sealed class RemoteHost : IDisposable
 
     private async Task Send(JsonObject msg)
     {
+        if (_mqtt is { } mqtt)
+        {
+            // Only peer-directed signals exist in MQTT mode (no pair-key registration: phones always know the HostId).
+            if ((string?)msg["t"] == "signal" && msg["to"] is JsonNode to)
+                await mqtt.PublishAsync(MqttPrefix + "p/" + (string)to!,
+                    Encoding.UTF8.GetBytes(new JsonObject { ["t"] = "signal", ["data"] = msg["data"]?.DeepClone() }.ToJsonString())).ConfigureAwait(false);
+            return;
+        }
         var ws = _ws;
         if (ws?.State != WebSocketState.Open) return;
         byte[] bytes = Encoding.UTF8.GetBytes(msg.ToJsonString());

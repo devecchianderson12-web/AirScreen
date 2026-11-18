@@ -28,6 +28,7 @@ public sealed class AppController : IDisposable
     private StreamPipeline? _pipeline;
     private D3DDevice? _d3d;
     private CancellationTokenSource? _releaseDelay;
+    private bool _driverHintShown;
 
     public HostIdentity Identity { get; }
     public PairingService Pairing { get; }
@@ -44,6 +45,8 @@ public sealed class AppController : IDisposable
     public NegotiatedCaps? Caps { get; private set; }
     public PipelineStats? Stats => _pipeline?.Stats;
     public string DisplayDevice { get; private set; } = "";
+    /// <summary>Mode actually in use (Extended falls back to Mirror when the driver is not installed).</summary>
+    public DisplayMode EffectiveMode { get; private set; }
 
     public event Action? StateChanged;
     public event Action<string, string>? Notify; // title, text
@@ -55,7 +58,7 @@ public sealed class AppController : IDisposable
         Pairing = new PairingService(Identity);
         Lan = new LanServer(Identity, OnIncomingStream);
         Discovery = new DiscoveryResponder(Identity, () => Lan.Port);
-        Remote = new RemoteHost(Identity, Pairing, OnIncomingStream);
+        Remote = new RemoteHost(Identity, OnIncomingStream);
         Updates = new Update.UpdateService();
         Remote.StatusChanged += RaiseChanged;
         Pairing.Changed += RaiseChanged;
@@ -272,13 +275,27 @@ public sealed class AppController : IDisposable
             var mode = Negotiator.Choose(Caps, session.Hello.Caps, s);
             string mime = Negotiator.ChooseCodec(Caps, s, mode);
 
-            var target = await _display.AcquireAsync(s.Mode, mode.Width, mode.Height, mode.Fps, s.Orientation, session.Token).ConfigureAwait(false);
+            // Extended mode needs the virtual display driver (a Windows requirement). Without it, fall back to
+            // mirror mode so the phone always shows something with zero installation.
+            var displayMode = s.Mode;
+            if (displayMode == DisplayMode.Extended && !_display.DriverAvailable)
+            {
+                displayMode = DisplayMode.Mirror;
+                if (!_driverHintShown)
+                {
+                    _driverHintShown = true;
+                    Notify?.Invoke("Modo espejo", "Se usa el modo espejo. Para usar el teléfono como pantalla extendida, instala el controlador en Configuración.");
+                }
+            }
+            EffectiveMode = displayMode;
+
+            var target = await _display.AcquireAsync(displayMode, mode.Width, mode.Height, mode.Fps, s.Orientation, session.Token).ConfigureAwait(false);
             DisplayDevice = target.DeviceName;
-            int outW = s.Mode == DisplayMode.Extended ? target.Width : mode.Width;
-            int outH = s.Mode == DisplayMode.Extended ? target.Height : mode.Height;
+            bool extended = displayMode == DisplayMode.Extended;
+            int outW = extended ? target.Width : mode.Width;
+            int outH = extended ? target.Height : mode.Height;
             outW &= ~1; outH &= ~1;
-            int fps = s.Mode == DisplayMode.Extended && target.RefreshHz > 0 ? Math.Min(mode.Fps, target.RefreshHz) : mode.Fps;
-            if (s.Mode == DisplayMode.Mirror && target.RefreshHz > 0) fps = Math.Min(fps, target.RefreshHz);
+            int fps = target.RefreshHz > 0 ? Math.Min(mode.Fps, target.RefreshHz) : mode.Fps;
 
             var abr = new BitrateController(outW, outH, fps, EffectiveQuality(session), s.MaxBitrateMbps);
             _d3d ??= new D3DDevice();
@@ -292,7 +309,7 @@ public sealed class AppController : IDisposable
             CurrentConfig = new StreamConfigMsg
             {
                 Mime = mime, Width = outW, Height = outH, Fps = fps, BitrateKbps = abr.TargetKbps,
-                Mode = s.Mode == DisplayMode.Extended ? "extended" : "mirror",
+                Mode = extended ? "extended" : "mirror",
             };
             session.SendJson(MsgType.StreamConfig, CurrentConfig);
             pipeline.Start();

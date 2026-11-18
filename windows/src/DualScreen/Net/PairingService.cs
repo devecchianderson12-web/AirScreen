@@ -71,16 +71,6 @@ public sealed class PairingService
         Changed?.Invoke();
     }
 
-    /// <summary>SHA-256 of the current code, used as rendezvous key on the signaling server.</summary>
-    public string? CurrentCodeRendezvousKey
-    {
-        get
-        {
-            string? c = CurrentCode;
-            return c == null ? null : SecretStore.Sha256Hex(Encoding.UTF8.GetBytes("DSRDV1|" + c));
-        }
-    }
-
     /// <summary>Builds the QR payload. It pins the host certificate fingerprint, so QR pairing is MITM-safe.</summary>
     public string BuildQrPayload(int port, string? signalingUrl)
     {

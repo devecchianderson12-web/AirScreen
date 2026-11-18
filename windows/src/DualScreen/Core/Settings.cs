@@ -12,6 +12,10 @@ public enum CodecPreference { Auto, H264, Hevc, Av1 }
 
 public sealed class AppSettings
 {
+    /// <summary>Schema version for migrations of settings.json.</summary>
+    public int SettingsVersion { get; set; }
+    public const int CurrentVersion = 2;
+
     public DisplayMode Mode { get; set; } = DisplayMode.Extended;
     /// <summary>"auto" = phone's native resolution, otherwise "WIDTHxHEIGHT".</summary>
     public string Resolution { get; set; } = "auto";
@@ -26,7 +30,7 @@ public sealed class AppSettings
 
     public int LanPort { get; set; } = AppInfo.DefaultLanPort;
     public bool LanEnabled { get; set; } = true;
-    public bool RemoteEnabled { get; set; } = false;
+    public bool RemoteEnabled { get; set; } = true;
     public string SignalingUrl { get; set; } = "";
     public string StunUrls { get; set; } = "stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302";
     public string TurnUrl { get; set; } = "";
@@ -69,10 +73,19 @@ public static class SettingsStore
         try
         {
             if (File.Exists(AppPaths.SettingsFile))
-                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(AppPaths.SettingsFile), Json.Options) ?? new AppSettings();
+            {
+                var s = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(AppPaths.SettingsFile), Json.Options) ?? new AppSettings();
+                if (s.SettingsVersion < AppSettings.CurrentVersion)
+                {
+                    // v0.1.0 shipped with remote connections off; they are now on by default (zero-setup broker).
+                    s.RemoteEnabled = true;
+                    s.SettingsVersion = AppSettings.CurrentVersion;
+                }
+                return s;
+            }
         }
         catch (Exception ex) { Log.Warn($"Settings file unreadable, using defaults: {ex.Message}"); }
-        return new AppSettings();
+        return new AppSettings { SettingsVersion = AppSettings.CurrentVersion };
     }
 
     public static void Save()

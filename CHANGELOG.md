@@ -4,6 +4,15 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); v
 
 ## [Sin publicar]
 
+### Corregido
+- Si el controlador no está instalado, el modo extendido pasa automáticamente a modo espejo en lugar de fallar.
+- Mensajes de error del teléfono con la causa concreta por cada dirección probada.
+- El mensaje de error ya no aparece duplicado en la pantalla del teléfono.
+
+### Añadido
+- Conexión remota sin configurar nada: activada por defecto mediante un broker MQTT público para la señalización (WebRTC P2P directo).
+- Botón y aviso para permitir DualScreen en el firewall de Windows (conexiones Wi‑Fi locales).
+
 ### Cambiado
 - Las releases publican solo `DualScreen.exe` y `DualScreen.apk`; el hash y la firma del exe viajan en un comentario invisible de las notas.
 - Las copias 0.1.0 no pueden autoactualizarse a este formato: descarga la siguiente versión manualmente una vez.

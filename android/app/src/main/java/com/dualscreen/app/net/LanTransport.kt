@@ -38,7 +38,7 @@ class LanTransport private constructor(private val socket: SSLSocket, override v
 
     companion object {
         @Throws(IOException::class)
-        fun connect(address: String, port: Int, expectedFingerprint: String?, timeoutMs: Int = 4000): LanTransport {
+        fun connect(address: String, port: Int, expectedFingerprint: String?, timeoutMs: Int = 2500): LanTransport {
             var seen: String? = null
             val tm = object : X509TrustManager {
                 override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) = throw CertificateException()

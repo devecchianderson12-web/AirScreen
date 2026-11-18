@@ -25,6 +25,7 @@ import java.io.PipedInputStream
 import java.io.PipedOutputStream
 import java.math.BigInteger
 import java.nio.ByteBuffer
+import java.security.SecureRandom
 import java.security.Signature
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
@@ -37,7 +38,8 @@ import java.util.concurrent.TimeUnit
  * that signature against the pinned certificate fingerprint, so the signaling server cannot intercept the session.
  */
 class RemoteTransport private constructor(
-    private val ws: WebSocket,
+    private val ws: WebSocket?,
+    private val mqtt: MqttWs?,
     private val pc: PeerConnection,
     private val dc: DataChannel,
     private val pipeIn: PipedInputStream,
@@ -69,7 +71,8 @@ class RemoteTransport private constructor(
         closed = true
         runCatching { dc.close() }
         runCatching { pc.close() }
-        runCatching { ws.close(1000, "bye") }
+        runCatching { ws?.close(1000, "bye") }
+        runCatching { mqtt?.close() }
         runCatching { pipeIn.close() }
     }
 
@@ -87,13 +90,13 @@ class RemoteTransport private constructor(
         }
 
         /**
-         * @param hostId join a paired PC, or null to join by [pairCode].
-         * @param expectedFingerprint pinned PC certificate fingerprint (null only for first pairing by typed code).
+         * @param signalingUrl wss://… (DualScreen signaling server) or mqtt+wss://… (public MQTT broker, zero setup).
+         * @param expectedFingerprint pinned PC certificate fingerprint (from the QR code or a previous pairing).
          */
         @Throws(IOException::class)
         fun connect(
-            context: Context, signalingUrl: String, hostId: String?, pairCode: String?,
-            expectedFingerprint: String?, timeoutSec: Long = 25,
+            context: Context, signalingUrl: String, hostId: String,
+            expectedFingerprint: String, timeoutSec: Long = 30,
         ): RemoteTransport {
             val f = factory(context)
             val ready = CountDownLatch(1)
@@ -103,18 +106,24 @@ class RemoteTransport private constructor(
             var fingerprint: String? = null
             val pipeIn = PipedInputStream(8 * 1024 * 1024)
             val pipeOut = PipedOutputStream(pipeIn)
-            lateinit var ws: WebSocket
+            var ws: WebSocket? = null
+            var mqtt: MqttWs? = null
+            val peerId = Protocol.hex(ByteArray(12).also { SecureRandom().nextBytes(it) })
+            val hostTopic = "dualscreen/v1/h/$hostId"
 
-            fun send(o: JSONObject) { ws.send(o.toString()) }
+            fun send(o: JSONObject) {
+                val m = mqtt
+                if (m != null) m.publish(hostTopic, o.put("from", peerId).toString().toByteArray()) else ws?.send(o.toString())
+            }
 
             val listener = object : WebSocketListener() {
                 override fun onMessage(webSocket: WebSocket, text: String) {
-                    try {
-                        val m = JSONObject(text)
+                    try { handle(JSONObject(text)) } catch (e: Exception) { Log.w(TAG, "signaling message failed", e) }
+                }
+
+                fun handle(m: JSONObject) {
                         when (m.optString("t")) {
-                            "challenge" -> send(JSONObject().put("t", "join").apply {
-                                if (hostId != null) put("hostId", hostId) else put("pairKey", Protocol.rendezvousKey(pairCode!!))
-                            })
+                            "challenge" -> send(JSONObject().put("t", "join").put("hostId", hostId))
                             "joined" -> {
                                 val servers = mutableListOf(
                                     PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
@@ -207,9 +216,6 @@ class RemoteTransport private constructor(
                                 ready.countDown()
                             }
                         }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "signaling message failed", e)
-                    }
                 }
 
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
@@ -219,17 +225,33 @@ class RemoteTransport private constructor(
                 }
             }
 
-            ws = http.newWebSocket(Request.Builder().url(signalingUrl).build(), listener)
+            if (signalingUrl.startsWith("mqtt+")) {
+                mqtt = MqttWs(http,
+                    onConnected = {
+                        val m = mqtt!!
+                        m.subscribe("dualscreen/v1/p/$peerId")
+                        listener.handle(JSONObject().put("t", "joined")) // create the peer connection first
+                        m.publish(hostTopic, JSONObject().put("t", "join").put("peerId", peerId).toString().toByteArray())
+                    },
+                    onMessage = { _, payload ->
+                        try { listener.handle(JSONObject(String(payload))) } catch (e: Exception) { Log.w(TAG, "signaling message failed", e) }
+                    },
+                    onFailure = { msg -> error = msg; ready.countDown() })
+                mqtt!!.connect(signalingUrl, "ds-p-$peerId")
+            } else {
+                ws = http.newWebSocket(Request.Builder().url(signalingUrl).build(), listener)
+            }
             val ok = ready.await(timeoutSec, TimeUnit.SECONDS)
             val dc = channel
             val peer = pc
             if (!ok || error != null || dc == null || peer == null || fingerprint == null) {
                 runCatching { dc?.close() }
                 runCatching { peer?.close() }
-                ws.cancel()
+                ws?.cancel()
+                mqtt?.close()
                 throw IOException(error ?: "Tiempo de espera agotado en la conexión remota")
             }
-            return RemoteTransport(ws, peer, dc, pipeIn, fingerprint!!)
+            return RemoteTransport(ws, mqtt, peer, dc, pipeIn, fingerprint!!)
         }
 
         /** Verifies the offer signature (ECDSA P-256, P1363 r||s) and the pinned certificate. Returns the cert fingerprint. */

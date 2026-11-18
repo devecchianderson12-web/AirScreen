@@ -73,12 +73,8 @@ func TestHostPeerRendezvous(t *testing.T) {
 	if m := read(t, host); m["t"] != "registered" {
 		t.Fatalf("host not registered: %v", m)
 	}
-	pairKey := strings.Repeat("a", 64)
-	_ = host.WriteJSON(msg{"t": "set-pair-key", "key": pairKey})
-	time.Sleep(50 * time.Millisecond)
-
 	phone, _ := dial(t, url)
-	_ = phone.WriteJSON(msg{"t": "join", "pairKey": pairKey})
+	_ = phone.WriteJSON(msg{"t": "join", "hostId": hostID})
 	if m := read(t, phone); m["t"] != "joined" || m["hostId"] != hostID {
 		t.Fatalf("phone not joined: %v", m)
 	}

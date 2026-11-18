@@ -90,6 +90,7 @@ public partial class MainWindow : Window
 
     private void RefreshAll()
     {
+        FirewallCard.Visibility = SettingsStore.Current.LanEnabled && !Firewall.IsAllowed() ? Visibility.Visible : Visibility.Collapsed;
         RefreshHome();
         RefreshDisplayOptions();
         RefreshConnection();
@@ -392,6 +393,13 @@ public partial class MainWindow : Window
         var (ok, msg) = await Task.Run(() => DriverInstaller.RunElevated("install"));
         MessageBox.Show(this, string.IsNullOrWhiteSpace(msg) ? (ok ? "Controlador instalado." : "La instalación falló.") : msg,
             "DualScreen", MessageBoxButton.OK, ok ? MessageBoxImage.Information : MessageBoxImage.Warning);
+        RefreshAll();
+    }
+
+    private async void AllowFirewall_Click(object sender, RoutedEventArgs e)
+    {
+        var (ok, msg) = await Task.Run(() => DriverInstaller.RunElevated("firewall"));
+        if (!ok) MessageBox.Show(this, msg, "DualScreen", MessageBoxButton.OK, MessageBoxImage.Warning);
         RefreshAll();
     }
 

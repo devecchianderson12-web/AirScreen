@@ -81,6 +81,16 @@
                                 </Grid>
                             </Border>
 
+                            <Border x:Name="FirewallCard" Style="{StaticResource Card}" Margin="0,8,0,0" Visibility="Collapsed" BorderBrush="{StaticResource WarningBrush}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                    <TextBlock Text="&#xE83D;" Style="{StaticResource Icon}" Foreground="{StaticResource WarningBrush}" Margin="0,0,12,0"/>
+                                    <TextBlock Grid.Column="1" Style="{StaticResource CaptionText}" VerticalAlignment="Center"
+                                               Text="El firewall de Windows bloquea las conexiones por Wi-Fi. Permítelas para la menor latencia (la conexión remota sigue funcionando)."/>
+                                    <Button Grid.Column="2" Content="Permitir" Style="{StaticResource AccentButton}" Click="AllowFirewall_Click" Margin="12,0,0,0"/>
+                                </Grid>
+                            </Border>
+
                             <TextBlock Text="Transmisión" Style="{StaticResource SubtitleText}"/>
                             <UniformGrid Columns="3" x:Name="StatsGrid">
                                 <Border Style="{StaticResource Card}" Margin="0,0,4,4"><StackPanel>

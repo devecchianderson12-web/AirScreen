@@ -2,6 +2,6 @@
   "owner": "devecchianderson12-web",
   "repo": "AirScreen",
   "exeAssetName": "DualScreen.exe",
-  "defaultSignalingUrl": "",
+  "defaultSignalingUrl": "mqtt+wss://broker.emqx.io:8084/mqtt",
   "updateCheckHours": 6
 }

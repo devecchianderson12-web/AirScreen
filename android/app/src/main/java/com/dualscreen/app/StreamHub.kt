@@ -168,14 +168,28 @@ object StreamHub {
 
     class FatalError(msg: String) : IOException(msg)
 
+    /** Turns socket errors into hints the user can act on. */
+    private fun explain(e: Exception): String = when (e) {
+        is java.net.SocketTimeoutException -> "sin respuesta (¿otra red, o el firewall de Windows bloquea DualScreen?)"
+        is java.net.ConnectException -> "conexión rechazada (¿DualScreen está abierto en el PC?)"
+        is java.net.NoRouteToHostException -> "red inalcanzable (¿el teléfono está en otra red?)"
+        is javax.net.ssl.SSLException -> "el certificado del PC no coincide (vuelve a escanear el QR)"
+        else -> e.message ?: e.javaClass.simpleName
+    }
+
     private fun open(ctx: Context, store: Store, target: Target): Transport {
         val errors = mutableListOf<String>()
         fun tryLan(addresses: List<String>, port: Int, fp: String?): Transport? {
             for (a in addresses.distinct()) {
-                try { return LanTransport.connect(a, port, fp) } catch (e: Exception) { errors += "$a: ${e.message}" }
+                try { return LanTransport.connect(a, port, fp) } catch (e: Exception) { errors += "$a: ${explain(e)}" }
             }
             return null
         }
+        fun tryRemote(url: String?, hostId: String, fp: String): Transport? {
+            if (url == null) { errors += "conexión remota: no configurada en el PC"; return null }
+            return try { RemoteTransport.connect(ctx, url, hostId, fp) } catch (e: Exception) { errors += "remota: ${e.message}"; null }
+        }
+        fun details() = errors.joinToString("\n• ", prefix = "\n\n• ")
         return when (target) {
             is Target.Paired -> {
                 val h = target.host
@@ -183,20 +197,20 @@ object StreamHub {
                 // Prefer a fresh discovery answer (the PC's IP may have changed).
                 val found = runCatching { Discovery.scan(ctx, 800) }.getOrDefault(emptyList()).filter { it.hostId == h.hostId }
                 tryLan(found.map { it.address } + h.addresses, found.firstOrNull()?.port ?: h.port, h.fingerprint)
-                    ?: h.signalingUrl?.let { RemoteTransport.connect(ctx, it, h.hostId, null, h.fingerprint) }
-                    ?: throw IOException("PC no encontrado (${errors.joinToString("; ")})")
+                    ?: tryRemote(h.signalingUrl, h.hostId, h.fingerprint)
+                    ?: throw IOException("No se encontró ${h.name}." + details())
             }
             is Target.Qr -> {
                 val i = target.info
                 hostName = i.name
                 tryLan(i.addresses, i.port, i.fingerprint)
-                    ?: i.signalingUrl?.let { RemoteTransport.connect(ctx, it, null, i.code, i.fingerprint) }
-                    ?: throw FatalError("No se pudo llegar al PC. ¿Está en la misma red o tiene activada la conexión remota?")
+                    ?: tryRemote(i.signalingUrl, i.hostId, i.fingerprint)
+                    ?: throw FatalError("No se pudo conectar con ${i.name}." + details())
             }
             is Target.Code -> {
                 hostName = target.host.name
                 tryLan(listOf(target.host.address), target.host.port, null)
-                    ?: throw FatalError("No se pudo conectar con ${target.host.name}")
+                    ?: throw FatalError("No se pudo conectar con ${target.host.name}." + details())
             }
         }
     }

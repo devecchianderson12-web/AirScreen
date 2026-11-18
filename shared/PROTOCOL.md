@@ -97,13 +97,24 @@ Errores de `WELCOME` (`ok:false`): `bad-code`, `code-expired`, `too-many-attempt
 servidor → cliente  {"t":"challenge","nonce":"…"}
 PC       → servidor {"t":"hello-host","hostId":"…","cert":"base64 DER","sig":"base64 P1363(SHA256('DSHOST1|hostId|nonce'))"}
 servidor → PC       {"t":"registered","iceServers":[{urls,username,credential}]}
-PC       → servidor {"t":"set-pair-key","key":"hex SHA256('DSRDV1|'+código)"}
-teléfono → servidor {"t":"join","hostId":"…"}  o  {"t":"join","pairKey":"…"}
+teléfono → servidor {"t":"join","hostId":"…"}
 servidor → teléfono {"t":"joined","hostId":"…","iceServers":[…]}
 servidor → PC       {"t":"peer","peerId":"…"}
 PC       → teléfono {"t":"signal","to":peerId,"data":{"kind":"offer","sdp":…,"cert":…,"sig":"P1363(SHA256('DSOFFER1|'+sdp))"}}
 teléfono → PC       {"t":"signal","data":{"kind":"answer","sdp":…}}
 ambos               {"t":"signal",…,"data":{"kind":"ice","candidate":…,"sdpMid":…,"sdpMLineIndex":…}}
 ```
+
+### Señalización sin servidor propio (predeterminada): broker MQTT público
+
+URL `mqtt+wss://broker.emqx.io:8084/mqtt` (MQTT 3.1.1 sobre WebSocket, QoS 0). Temas:
+
+| Tema | Quién escucha | Mensajes |
+|---|---|---|
+| `dualscreen/v1/h/<hostId>` | PC | `{"t":"join","peerId"}`, `{"t":"signal","from":peerId,"data":…}` |
+| `dualscreen/v1/p/<peerId>` | teléfono (`peerId` aleatorio de 96 bits) | `{"t":"signal","data":…}` |
+
+El contenido de `data` es idéntico al del servidor propio. Cualquiera puede leer esos temas: por eso la
+oferta va firmada y la autenticación (token o código) ocurre dentro del canal DTLS.
 
 Credenciales TURN efímeras: esquema REST de coturn (`usuario = expiración:peerId`, `contraseña = base64(HMAC-SHA1(secreto, usuario))`).

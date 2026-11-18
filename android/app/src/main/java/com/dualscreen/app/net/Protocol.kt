@@ -48,8 +48,6 @@ object Protocol {
         mac.init(SecretKeySpec(code.toByteArray(), "HmacSHA256"))
         return hex(mac.doFinal("DSPAIR1|$fingerprint|$deviceId|$nonce".toByteArray()))
     }
-
-    fun rendezvousKey(code: String): String = sha256Hex("DSRDV1|$code".toByteArray())
 }
 
 class Frame(val type: Int, val payload: ByteArray) {

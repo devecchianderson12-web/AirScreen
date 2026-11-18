@@ -2,7 +2,7 @@
 //
 // It only introduces peers; it never sees video. Hosts (PCs) prove ownership of their HostId by signing a
 // server challenge with their identity key (HostId = first 16 bytes of SHA-256(SubjectPublicKeyInfo)).
-// Phones join a host by HostId (already paired) or by the hash of the PC's current 6-digit pairing code.
+// Phones join a host by its HostId (taken from the QR code or a previous pairing).
 // The server then relays WebRTC offers/answers/ICE candidates. Offers are signed by the host, so a malicious
 // server cannot man-in-the-middle the DTLS session. Optionally it issues short-lived TURN credentials using the
 // coturn "REST API" shared-secret scheme (use-auth-secret).
@@ -61,15 +61,14 @@ func (c *conn) send(m msg) error {
 }
 
 type hub struct {
-	cfg      config
-	mu       sync.Mutex
-	hosts    map[string]*conn // hostId -> host connection
-	pairKeys map[string]string
-	peers    map[string]*conn // peerId -> phone connection
+	cfg   config
+	mu    sync.Mutex
+	hosts map[string]*conn // hostId -> host connection
+	peers map[string]*conn // peerId -> phone connection
 }
 
 func newHub(cfg config) *hub {
-	return &hub{cfg: cfg, hosts: map[string]*conn{}, pairKeys: map[string]string{}, peers: map[string]*conn{}}
+	return &hub{cfg: cfg, hosts: map[string]*conn{}, peers: map[string]*conn{}}
 }
 
 var upgrader = websocket.Upgrader{
@@ -151,32 +150,12 @@ func (h *hub) handle(c *conn, m msg) error {
 		log.Printf("host %s registered", hostID)
 		return c.send(msg{"t": "registered", "iceServers": h.iceServers(hostID)})
 
-	case "set-pair-key":
-		if !c.isHost {
-			return errors.New("not-a-host")
-		}
-		key := str(m, "key")
-		h.mu.Lock()
-		for k, v := range h.pairKeys {
-			if v == c.hostID {
-				delete(h.pairKeys, k)
-			}
-		}
-		if len(key) == 64 {
-			h.pairKeys[key] = c.hostID
-		}
-		h.mu.Unlock()
-		return nil
-
 	case "join":
 		if c.isHost {
 			return errors.New("host-cannot-join")
 		}
 		h.mu.Lock()
-		hostID := str(m, "hostId")
-		if hostID == "" {
-			hostID = h.pairKeys[str(m, "pairKey")]
-		}
+		hostID := strings.ToLower(str(m, "hostId"))
 		host := h.hosts[hostID]
 		if host == nil || len(h.peers) >= h.cfg.MaxPeers {
 			h.mu.Unlock()
@@ -222,11 +201,6 @@ func (h *hub) drop(c *conn) {
 	if c.isHost {
 		if h.hosts[c.hostID] == c {
 			delete(h.hosts, c.hostID)
-			for k, v := range h.pairKeys {
-				if v == c.hostID {
-					delete(h.pairKeys, k)
-				}
-			}
 			log.Printf("host %s left", c.hostID)
 		}
 		return

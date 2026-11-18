@@ -9,7 +9,22 @@ Para conectar el teléfono cuando **no** está en la misma red que el PC, DualSc
 3. **TURN** (coturn): si ambos NAT son estrictos (CGNAT de operadoras móviles es habitual), el tráfico cifrado
    se retransmite por tu servidor TURN. No hace falta abrir puertos en el router de casa.
 
-Sin servidor propio el modo remoto no funciona: no se depende de servicios de pago obligatorios.
+## Sin configurar nada (predeterminado)
+
+DualScreen trae activada la conexión remota usando un **broker MQTT público y gratuito**
+(`mqtt+wss://broker.emqx.io:8084/mqtt`) solo para presentarse; el vídeo va directo entre PC y teléfono.
+Empareja con el **código QR** (lleva la URL y la identidad del PC) y el teléfono podrá conectarse aunque esté
+en datos móviles u otra Wi‑Fi.
+
+Limitaciones honestas de este modo:
+- Sin TURN: si **ambos** extremos están tras NAT estrictos (p. ej. CGNAT simétrico de algunas operadoras),
+  la conexión directa no es posible y fallará con "No se pudo establecer la conexión P2P ni por TURN".
+  Para esos casos hace falta tu propio TURN (abajo).
+- El broker público no garantiza disponibilidad. Puedes cambiar la URL en Configuración → Conexión remota.
+
+## Servidor propio (opcional, más fiable)
+
+Sin servidor propio el modo remoto depende del broker público: no se depende de servicios de pago obligatorios.
 Los STUN públicos de Google (`stun.l.google.com`) se usan por defecto y son gratuitos; TURN consume ancho de
 banda, por eso debe ser tuyo.
 

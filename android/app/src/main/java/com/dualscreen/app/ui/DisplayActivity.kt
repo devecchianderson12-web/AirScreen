@@ -137,6 +137,7 @@ class DisplayActivity : Activity(), SurfaceHolder.Callback {
             else -> StreamHub.message
         }
         if (st == LinkState.DISCONNECTED || st == LinkState.ERROR) {
+            waiting.visibility = View.GONE // the dialog already shows the message
             if (st == LinkState.ERROR && !isFinishing) {
                 AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
                     .setMessage(StreamHub.message).setPositiveButton("Aceptar") { _, _ -> finish() }.setCancelable(false).show()
