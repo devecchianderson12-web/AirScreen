@@ -2,7 +2,7 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones [SemVer](https://semver.org/lang/es/).
 
-## [Sin publicar]
+## [0.1.1] - 2026-11-18
 
 ### Corregido
 - Si el controlador no está instalado, el modo extendido pasa automáticamente a modo espejo en lugar de fallar.
