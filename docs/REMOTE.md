@@ -20,8 +20,8 @@ del vídeo, p. ej. 10–30 Mbps por sesión), dos nombres DNS apuntando a él, p
 `80/443 TCP` (señalización), `3478 TCP/UDP` y `49160-49200 UDP` (TURN).
 
 ```bash
-git clone https://github.com/<tu-usuario>/DualScreen.git
-cd DualScreen/signaling-server
+git clone https://github.com/devecchianderson12-web/AirScreen.git
+cd AirScreen/signaling-server
 cp .env.example .env
 openssl rand -hex 32            # pega el valor en TURN_SECRET dentro de .env
 nano .env                       # SIGNALING_DOMAIN y TURN_DOMAIN

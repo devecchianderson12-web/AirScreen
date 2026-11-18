@@ -1,4 +1,4 @@
-module github.com/your-github-user/DualScreen/signaling-server
+module github.com/devecchianderson12-web/AirScreen/signaling-server
 
 go 1.24.7
 
