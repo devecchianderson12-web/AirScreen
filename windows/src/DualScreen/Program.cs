@@ -41,6 +41,8 @@ public static class Program
         app.InitializeComponent();
         int code = app.Run();
         Log.Flush();
+        // Terminate even if a library left a foreground thread running.
+        Environment.Exit(code);
         return code;
     }
 }

@@ -86,10 +86,20 @@ public partial class App : Application
         if (_exiting) return;
         _exiting = true;
         Log.Info("Exiting");
+        // Watchdog: whatever happens during cleanup, the process must end quickly (the updater is waiting to
+        // replace the exe, and a lingering process blocks the next launch through the single-instance mutex).
+        new System.Threading.Thread(() =>
+        {
+            System.Threading.Thread.Sleep(TimeSpan.FromSeconds(8));
+            Log.Warn("Cleanup took too long; forcing exit");
+            Log.Flush();
+            Environment.Exit(0);
+        }) { IsBackground = true, Name = "DualScreen.ExitWatchdog" }.Start();
         _window?.Close();
         _tray?.Dispose();
         _showWait?.Unregister(null);
         try { _controller?.Dispose(); } catch (Exception ex) { Log.Error("Shutdown error", ex); }
+        Log.Info("Shutdown complete");
         Log.Flush();
         Shutdown(0);
     }

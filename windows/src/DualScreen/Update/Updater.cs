@@ -93,7 +93,9 @@ public static class Updater
             if (!proc.WaitForExit(30_000))
             {
                 Log.Warn("Updater: old process still running, terminating it");
-                proc.Kill(true);
+                // Only the old process itself: this updater was started by it, so killing its whole process tree
+                // would include the updater (and throws InvalidOperationException).
+                proc.Kill(entireProcessTree: false);
                 proc.WaitForExit(5_000);
             }
         }

@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones [SemVer](https://semver.org/lang/es/).
 
+## [0.1.8] - 2026-11-19
+
+### Corregido
+- La actualización del PC fallaba y dejaba la app cerrada: el proceso anterior tardaba en terminar y el actualizador intentaba cerrar también su propio proceso. Ahora la app siempre termina en pocos segundos y el actualizador solo cierra la versión anterior.
+
 ## [0.1.7] - 2026-11-19
 
 ### Añadido
