@@ -236,6 +236,8 @@ public sealed class RemoteHost : IDisposable
         var relay = await IceCredentials.GetAsync().ConfigureAwait(false);
         var servers = _iceServers.Concat(ParseIceServers(relay, includeDefaults: false)).ToList();
         var pc = new RTCPeerConnection(new RTCConfiguration { iceServers = servers, X_UseRsaForDtlsCertificate = false });
+        Log.Info($"Remote peer {peerId} joined; ICE servers: {string.Join(", ", servers.Select(x => x.urls))}");
+        pc.oniceconnectionstatechange += st => Log.Info($"Remote peer {peerId} ICE: {st}");
         _peers[peerId] = pc;
 
         pc.onicecandidate += cand =>
@@ -250,7 +252,11 @@ public sealed class RemoteHost : IDisposable
         pc.onconnectionstatechange += st =>
         {
             Log.Info($"Remote peer {peerId}: {st}");
-            if (st is RTCPeerConnectionState.failed or RTCPeerConnectionState.closed) _peers.TryRemove(peerId, out _);
+            if (st is RTCPeerConnectionState.failed or RTCPeerConnectionState.closed)
+            {
+                _peers.TryRemove(peerId, out _);
+                _pendingIce.TryRemove(peerId, out _);
+            }
         };
 
         var dc = await pc.createDataChannel("ds", new RTCDataChannelInit { ordered = true }).ConfigureAwait(false);
@@ -286,6 +292,7 @@ public sealed class RemoteHost : IDisposable
     /// <summary>Raised when a phone on the same network asks the PC to dial it (no inbound firewall rule needed).</summary>
     public event Func<IReadOnlyList<System.Net.IPAddress>, int, Task>? DialRequested;
     private DateTime _lastDial = DateTime.MinValue;
+    private readonly ConcurrentDictionary<string, List<RTCIceCandidateInit>> _pendingIce = new();
 
     private void HandleSignal(string from, JsonObject data)
     {
@@ -307,15 +314,25 @@ public sealed class RemoteHost : IDisposable
         {
             case "answer":
                 var res = pc.setRemoteDescription(new RTCSessionDescriptionInit { type = RTCSdpType.answer, sdp = (string)data["sdp"]! });
-                if (res != SetDescriptionResultEnum.OK) Log.Warn($"Remote answer rejected: {res}");
+                if (res != SetDescriptionResultEnum.OK) { Log.Warn($"Remote answer rejected: {res}"); break; }
+                Log.Info($"Remote answer applied for {from}");
+                if (_pendingIce.TryRemove(from, out var queued))
+                    lock (queued) foreach (var c in queued) pc.addIceCandidate(c);
                 break;
             case "ice":
-                pc.addIceCandidate(new RTCIceCandidateInit
+                var cand = new RTCIceCandidateInit
                 {
                     candidate = (string)data["candidate"]!,
                     sdpMid = (string?)data["sdpMid"] ?? "0",
                     sdpMLineIndex = (ushort)((int?)data["sdpMLineIndex"] ?? 0),
-                });
+                };
+                // Candidates may overtake the answer on the signaling channel: queue them until it is applied.
+                if (pc.remoteDescription == null)
+                {
+                    var list = _pendingIce.GetOrAdd(from, _ => new List<RTCIceCandidateInit>());
+                    lock (list) list.Add(cand);
+                }
+                else pc.addIceCandidate(cand);
                 break;
         }
     }

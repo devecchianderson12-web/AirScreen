@@ -131,12 +131,14 @@ object StreamHub {
         val store = Store(ctx)
         var target = initial
         var attempt = 0
+        var everConnected = false
         while (!userStopped) {
             set(LinkState.CONNECTING, if (attempt == 0) "Conectando…" else "Reconectando… (intento ${attempt + 1})")
             try {
                 val t = open(ctx, store, target)
                 transport = t
                 transportDesc = t.description
+                everConnected = true
                 val paired = session(ctx, store, t, target)
                 attempt = 0
                 if (paired != null) target = Target.Paired(paired)
@@ -144,11 +146,14 @@ object StreamHub {
                 break
             } catch (e: Exception) {
                 Log.w(TAG, "connection failed", e)
-                if (e is FatalError || target !is Target.Paired || userStopped) {
+                // Only retry silently after a drop of a working session; a first attempt that fails shows
+                // its cause right away instead of looping.
+                if (e is FatalError || target !is Target.Paired || userStopped || !everConnected) {
                     set(LinkState.ERROR, e.message ?: "Error de conexión")
                     break
                 }
                 message = e.message ?: "Error de conexión"
+                set(LinkState.CONNECTING, "Reintentando… Último error: $message")
             } finally {
                 transport?.close()
                 transport = null
@@ -159,7 +164,7 @@ object StreamHub {
             if (userStopped) break
             // Automatic reconnection for a paired PC (Wi-Fi hiccup, PC restart, network change).
             attempt++
-            if (attempt > 30) { set(LinkState.ERROR, "No se pudo reconectar con $hostName"); break }
+            if (attempt > 10) { set(LinkState.ERROR, "No se pudo reconectar con $hostName"); break }
             try { Thread.sleep(minOf(1000L * attempt, 5000L)) } catch (_: InterruptedException) { break }
         }
         if (userStopped || state != LinkState.ERROR) set(LinkState.DISCONNECTED, "Desconectado")

@@ -117,6 +117,9 @@ class RemoteTransport private constructor(
             }
 
             var joinedServers: JSONArray? = null
+            // ICE candidates can overtake the offer on the signaling channel: keep them until the offer is applied.
+            val pendingIce = mutableListOf<IceCandidate>()
+            var remoteSet = false
 
             val listener = object : WebSocketListener() {
                 override fun onMessage(webSocket: WebSocket, text: String) {
@@ -190,6 +193,10 @@ class RemoteTransport private constructor(
                             "joined" -> joinedServers = m.optJSONArray("iceServers")
                             "signal" -> {
                                 val d = m.getJSONObject("data")
+                                if (d.optString("kind") == "ice" && !remoteSet) {
+                                    synchronized(pendingIce) { pendingIce += IceCandidate(d.optString("sdpMid", "0"), d.optInt("sdpMLineIndex"), d.getString("candidate")) }
+                                    return
+                                }
                                 val peer = pc ?: if (d.optString("kind") == "offer") createPc(joinedServers, d.optJSONArray("iceServers")) else return
                                 when (d.optString("kind")) {
                                     "offer" -> {
@@ -203,6 +210,11 @@ class RemoteTransport private constructor(
                                         fingerprint = fp
                                         peer.setRemoteDescription(object : SimpleSdp() {
                                             override fun onSetSuccess() {
+                                                synchronized(pendingIce) {
+                                                    remoteSet = true
+                                                    pendingIce.forEach { peer.addIceCandidate(it) }
+                                                    pendingIce.clear()
+                                                }
                                                 peer.createAnswer(object : SimpleSdp() {
                                                     override fun onCreateSuccess(answer: SessionDescription) {
                                                         peer.setLocalDescription(SimpleSdp(), answer)

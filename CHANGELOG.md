@@ -2,6 +2,13 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones [SemVer](https://semver.org/lang/es/).
 
+## [0.1.5] - 2026-11-19
+
+### Corregido
+- El teléfono ya no repite los pasos en bucle: si el primer intento falla, muestra la causa.
+- Candidatos ICE que llegaban antes que la oferta/respuesta se perdían; ahora se guardan y se aplican después.
+- Más detalle de la conexión remota en el registro del PC.
+
 ## [0.1.4] - 2026-11-19
 
 ### Añadido
