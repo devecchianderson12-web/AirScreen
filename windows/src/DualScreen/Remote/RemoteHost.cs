@@ -202,14 +202,17 @@ public sealed class RemoteHost : IDisposable
         }
     }
 
-    private List<RTCIceServer> ParseIceServers(JsonArray? arr)
+    private static List<RTCIceServer> ParseIceServers(JsonArray? arr, bool includeDefaults = true)
     {
         var list = new List<RTCIceServer>();
         var s = SettingsStore.Current;
-        foreach (var stun in s.StunUrls.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-            list.Add(new RTCIceServer { urls = stun });
-        if (!string.IsNullOrWhiteSpace(s.TurnUrl))
-            list.Add(new RTCIceServer { urls = s.TurnUrl, username = s.TurnUser, credential = s.GetTurnPassword() ?? "", credentialType = RTCIceCredentialType.password });
+        if (includeDefaults)
+        {
+            foreach (var stun in s.StunUrls.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                list.Add(new RTCIceServer { urls = stun });
+            if (!string.IsNullOrWhiteSpace(s.TurnUrl))
+                list.Add(new RTCIceServer { urls = s.TurnUrl, username = s.TurnUser, credential = s.GetTurnPassword() ?? "", credentialType = RTCIceCredentialType.password });
+        }
         if (arr != null)
         {
             foreach (var n in arr.OfType<JsonObject>())
@@ -229,7 +232,10 @@ public sealed class RemoteHost : IDisposable
     private async Task StartPeer(string peerId, CancellationToken ct)
     {
         if (_peers.Count > 4) return; // basic flood protection; a real session is authenticated inside the channel
-        var pc = new RTCPeerConnection(new RTCConfiguration { iceServers = _iceServers, X_UseRsaForDtlsCertificate = false });
+        // TURN relay credentials are shared with the phone inside the offer, so both ends can use the relay.
+        var relay = await IceCredentials.GetAsync().ConfigureAwait(false);
+        var servers = _iceServers.Concat(ParseIceServers(relay, includeDefaults: false)).ToList();
+        var pc = new RTCPeerConnection(new RTCConfiguration { iceServers = servers, X_UseRsaForDtlsCertificate = false });
         _peers[peerId] = pc;
 
         pc.onicecandidate += cand =>
@@ -266,6 +272,7 @@ public sealed class RemoteHost : IDisposable
                 ["sdp"] = offer.sdp,
                 ["cert"] = _identity.CertificateBase64,
                 ["sig"] = _identity.Sign("DSOFFER1|" + offer.sdp),
+                ["iceServers"] = relay,
             },
         }).ConfigureAwait(false);
 

@@ -3,5 +3,6 @@
   "repo": "AirScreen",
   "exeAssetName": "DualScreen.exe",
   "defaultSignalingUrl": "mqtt+wss://broker.emqx.io:8084/mqtt",
-  "updateCheckHours": 6
+  "updateCheckHours": 6,
+  "iceServersUrl": ""
 }

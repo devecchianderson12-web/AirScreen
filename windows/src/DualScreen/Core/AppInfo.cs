@@ -42,6 +42,8 @@ public sealed class RepoConfig
     public string Repo { get; set; } = "DualScreen";
     public string ExeAssetName { get; set; } = "DualScreen.exe";
     public string DefaultSignalingUrl { get; set; } = "";
+    /// <summary>HTTPS endpoint returning short-lived TURN credentials (Cloudflare Worker). Empty = no relay.</summary>
+    public string IceServersUrl { get; set; } = "";
     public int UpdateCheckHours { get; set; } = 6;
 }
 

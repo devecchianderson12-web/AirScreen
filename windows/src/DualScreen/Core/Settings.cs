@@ -37,6 +37,8 @@ public sealed class AppSettings
     public bool RemoteEnabled { get; set; } = true;
     public string SignalingUrl { get; set; } = "";
     public string StunUrls { get; set; } = "stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302";
+    /// <summary>Overrides the build's TURN credentials endpoint (empty = use dualscreen.repo.json).</summary>
+    public string IceServersUrl { get; set; } = "";
     public string TurnUrl { get; set; } = "";
     public string TurnUser { get; set; } = "";
     /// <summary>DPAPI-protected, base64. Never stored in clear text.</summary>

@@ -116,74 +116,81 @@ class RemoteTransport private constructor(
                 if (m != null) m.publish(hostTopic, o.put("from", peerId).toString().toByteArray()) else ws?.send(o.toString())
             }
 
+            var joinedServers: JSONArray? = null
+
             val listener = object : WebSocketListener() {
                 override fun onMessage(webSocket: WebSocket, text: String) {
                     try { handle(JSONObject(text)) } catch (e: Exception) { Log.w(TAG, "signaling message failed", e) }
                 }
 
+                fun createPc(vararg lists: JSONArray?): PeerConnection {
+                    val servers = mutableListOf(
+                        PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
+                    )
+                    for (arr in lists.filterNotNull()) for (i in 0 until arr.length()) {
+                        val s = arr.getJSONObject(i)
+                        servers += PeerConnection.IceServer.builder(s.getString("urls"))
+                            .setUsername(s.optString("username")).setPassword(s.optString("credential")).createIceServer()
+                    }
+                    val cfg = PeerConnection.RTCConfiguration(servers).apply {
+                        sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+                        continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
+                    }
+                    val created = f.createPeerConnection(cfg, object : PeerConnection.Observer {
+                        override fun onIceCandidate(c: IceCandidate) {
+                            send(JSONObject().put("t", "signal").put("data", JSONObject()
+                                .put("kind", "ice").put("candidate", c.sdp).put("sdpMid", c.sdpMid).put("sdpMLineIndex", c.sdpMLineIndex)))
+                        }
+                        override fun onDataChannel(dc: DataChannel) {
+                            channel = dc
+                            dc.registerObserver(object : DataChannel.Observer {
+                                override fun onBufferedAmountChange(previousAmount: Long) {}
+                                override fun onStateChange() {
+                                    when (dc.state()) {
+                                        DataChannel.State.OPEN -> ready.countDown()
+                                        DataChannel.State.CLOSED -> runCatching { pipeOut.close() }
+                                        else -> {}
+                                    }
+                                }
+                                override fun onMessage(buffer: DataChannel.Buffer) {
+                                    val bytes = ByteArray(buffer.data.remaining())
+                                    buffer.data.get(bytes)
+                                    runCatching { pipeOut.write(bytes); pipeOut.flush() }
+                                }
+                            })
+                            if (dc.state() == DataChannel.State.OPEN) ready.countDown()
+                        }
+                        override fun onConnectionChange(newState: PeerConnection.PeerConnectionState) {
+                            Log.i(TAG, "peer connection: $newState")
+                            if (newState == PeerConnection.PeerConnectionState.FAILED) {
+                                error = "No se pudo establecer la conexión P2P ni por TURN"
+                                ready.countDown()
+                                runCatching { pipeOut.close() }
+                            }
+                        }
+                        override fun onSignalingChange(s: PeerConnection.SignalingState) {}
+                        override fun onIceConnectionChange(s: PeerConnection.IceConnectionState) {}
+                        override fun onIceConnectionReceivingChange(b: Boolean) {}
+                        override fun onIceGatheringChange(s: PeerConnection.IceGatheringState) {}
+                        override fun onIceCandidatesRemoved(c: Array<out IceCandidate>) {}
+                        override fun onAddStream(s: org.webrtc.MediaStream) {}
+                        override fun onRemoveStream(s: org.webrtc.MediaStream) {}
+                        override fun onRenegotiationNeeded() {}
+                        override fun onAddTrack(r: RtpReceiver, s: Array<out org.webrtc.MediaStream>) {}
+                    })
+                    pc = created
+                    return created!!
+                }
+
                 fun handle(m: JSONObject) {
                         when (m.optString("t")) {
                             "challenge" -> send(JSONObject().put("t", "join").put("hostId", hostId))
-                            "joined" -> {
-                                val servers = mutableListOf(
-                                    PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
-                                )
-                                val arr = m.optJSONArray("iceServers") ?: JSONArray()
-                                for (i in 0 until arr.length()) {
-                                    val s = arr.getJSONObject(i)
-                                    servers += PeerConnection.IceServer.builder(s.getString("urls"))
-                                        .setUsername(s.optString("username")).setPassword(s.optString("credential")).createIceServer()
-                                }
-                                val cfg = PeerConnection.RTCConfiguration(servers).apply {
-                                    sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
-                                    continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
-                                }
-                                pc = f.createPeerConnection(cfg, object : PeerConnection.Observer {
-                                    override fun onIceCandidate(c: IceCandidate) {
-                                        send(JSONObject().put("t", "signal").put("data", JSONObject()
-                                            .put("kind", "ice").put("candidate", c.sdp).put("sdpMid", c.sdpMid).put("sdpMLineIndex", c.sdpMLineIndex)))
-                                    }
-                                    override fun onDataChannel(dc: DataChannel) {
-                                        channel = dc
-                                        dc.registerObserver(object : DataChannel.Observer {
-                                            override fun onBufferedAmountChange(previousAmount: Long) {}
-                                            override fun onStateChange() {
-                                                when (dc.state()) {
-                                                    DataChannel.State.OPEN -> ready.countDown()
-                                                    DataChannel.State.CLOSED -> runCatching { pipeOut.close() }
-                                                    else -> {}
-                                                }
-                                            }
-                                            override fun onMessage(buffer: DataChannel.Buffer) {
-                                                val bytes = ByteArray(buffer.data.remaining())
-                                                buffer.data.get(bytes)
-                                                runCatching { pipeOut.write(bytes); pipeOut.flush() }
-                                            }
-                                        })
-                                        if (dc.state() == DataChannel.State.OPEN) ready.countDown()
-                                    }
-                                    override fun onConnectionChange(newState: PeerConnection.PeerConnectionState) {
-                                        Log.i(TAG, "peer connection: $newState")
-                                        if (newState == PeerConnection.PeerConnectionState.FAILED) {
-                                            error = "No se pudo establecer la conexión P2P ni por TURN"
-                                            ready.countDown()
-                                            runCatching { pipeOut.close() }
-                                        }
-                                    }
-                                    override fun onSignalingChange(s: PeerConnection.SignalingState) {}
-                                    override fun onIceConnectionChange(s: PeerConnection.IceConnectionState) {}
-                                    override fun onIceConnectionReceivingChange(b: Boolean) {}
-                                    override fun onIceGatheringChange(s: PeerConnection.IceGatheringState) {}
-                                    override fun onIceCandidatesRemoved(c: Array<out IceCandidate>) {}
-                                    override fun onAddStream(s: org.webrtc.MediaStream) {}
-                                    override fun onRemoveStream(s: org.webrtc.MediaStream) {}
-                                    override fun onRenegotiationNeeded() {}
-                                    override fun onAddTrack(r: RtpReceiver, s: Array<out org.webrtc.MediaStream>) {}
-                                })
-                            }
+                            // The peer connection is created when the offer arrives: the offer carries the
+                            // TURN relay credentials the PC obtained, so both ends can use the relay.
+                            "joined" -> joinedServers = m.optJSONArray("iceServers")
                             "signal" -> {
                                 val d = m.getJSONObject("data")
-                                val peer = pc ?: return
+                                val peer = pc ?: if (d.optString("kind") == "offer") createPc(joinedServers, d.optJSONArray("iceServers")) else return
                                 when (d.optString("kind")) {
                                     "offer" -> {
                                         val sdp = d.getString("sdp")
