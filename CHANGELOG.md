@@ -2,6 +2,14 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones [SemVer](https://semver.org/lang/es/).
 
+## [0.1.6] - 2026-11-19
+
+### Añadido
+- App Android: botón «Buscar actualizaciones» que descarga e instala la nueva versión desde la propia app.
+
+### Cambiado
+- La APK se firma siempre con la misma clave: desde esta versión las actualizaciones se instalan encima sin desinstalar.
+
 ## [0.1.5] - 2026-11-19
 
 ### Corregido
