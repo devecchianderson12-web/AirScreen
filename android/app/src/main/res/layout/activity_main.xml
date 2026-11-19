@@ -100,6 +100,21 @@
         <TextView android:id="@+id/pairedEmpty" style="@style/Label" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:text="Ninguno todavía. Escanea el QR que muestra DualScreen en Windows." android:textColor="@color/text3" />
 
+        <!-- Updates -->
+        <TextView style="@style/Label" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="16dp" android:layout_marginBottom="8dp" android:text="Actualizaciones" />
+        <LinearLayout style="@style/Card" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+            <TextView android:id="@+id/updateText" style="@style/Value" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="DualScreen está actualizado" />
+            <TextView android:id="@+id/updateDetail" style="@style/Label" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="4dp" android:visibility="gone" />
+            <ProgressBar android:id="@+id/updateProgress" style="@android:style/Widget.Material.ProgressBar.Horizontal"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp"
+                android:max="100" android:progressTint="@color/accent" android:visibility="gone" />
+            <Button android:id="@+id/updateButton" style="@style/Button.Tonal" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="12dp" android:text="Buscar actualizaciones" />
+        </LinearLayout>
+
         <TextView android:id="@+id/versionText" style="@style/Label" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="28dp" android:gravity="center" android:textColor="@color/text3" />
     </LinearLayout>

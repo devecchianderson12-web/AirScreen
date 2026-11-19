@@ -29,12 +29,14 @@ android {
 
     signingConfigs {
         create("release") {
-            val path = System.getenv("ANDROID_KEYSTORE_PATH") ?: keystoreProps.getProperty("storeFile")
+            fun env(name: String) = System.getenv(name)?.takeIf { it.isNotEmpty() }
+            val path = env("ANDROID_KEYSTORE_PATH") ?: keystoreProps.getProperty("storeFile")
             if (path != null) {
                 storeFile = file(path)
-                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD") ?: keystoreProps.getProperty("storePassword")
-                keyAlias = System.getenv("ANDROID_KEY_ALIAS") ?: keystoreProps.getProperty("keyAlias")
-                keyPassword = System.getenv("ANDROID_KEY_PASSWORD") ?: keystoreProps.getProperty("keyPassword")
+                storePassword = env("ANDROID_KEYSTORE_PASSWORD") ?: keystoreProps.getProperty("storePassword")
+                // Single-password keystores: alias defaults to "dualscreen", key password to the store password.
+                keyAlias = env("ANDROID_KEY_ALIAS") ?: keystoreProps.getProperty("keyAlias") ?: "dualscreen"
+                keyPassword = env("ANDROID_KEY_PASSWORD") ?: keystoreProps.getProperty("keyPassword") ?: storePassword
             }
         }
     }

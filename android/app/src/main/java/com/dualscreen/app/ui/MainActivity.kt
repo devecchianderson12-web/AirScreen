@@ -27,6 +27,8 @@ import com.dualscreen.app.data.Store
 import com.dualscreen.app.net.DiscoveredHost
 import com.dualscreen.app.net.Discovery
 import com.dualscreen.app.net.PairInfo
+import com.dualscreen.app.update.ApkRelease
+import com.dualscreen.app.update.AppUpdater
 
 class MainActivity : Activity() {
     private lateinit var store: Store
@@ -61,6 +63,8 @@ class MainActivity : Activity() {
             StreamHub.setQuality(store.quality)
         }
         view<TextView>(R.id.versionText).text = "DualScreen ${BuildConfigCompat.versionName(this)}"
+        view<Button>(R.id.updateButton).setOnClickListener { onUpdateButton() }
+        checkForUpdate(userInitiated = false)
 
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
@@ -169,6 +173,74 @@ class MainActivity : Activity() {
             }
             .setNegativeButton("Cancelar", null)
             .show()
+    }
+
+    // ------------------------------------------------------------------ updates
+
+    private var pendingRelease: ApkRelease? = null
+    @Volatile private var updateBusy = false
+
+    private fun onUpdateButton() {
+        val rel = pendingRelease
+        if (rel == null) checkForUpdate(userInitiated = true) else installUpdate(rel)
+    }
+
+    private fun checkForUpdate(userInitiated: Boolean) {
+        if (updateBusy) return
+        updateBusy = true
+        val text = view<TextView>(R.id.updateText)
+        val button = view<Button>(R.id.updateButton)
+        if (userInitiated) { text.text = "Buscando actualizaciones…"; button.isEnabled = false }
+        Thread {
+            val result = runCatching { AppUpdater.check(this) }
+            runOnUiThread {
+                updateBusy = false
+                button.isEnabled = true
+                result.onSuccess { rel ->
+                    pendingRelease = rel
+                    val detail = view<TextView>(R.id.updateDetail)
+                    if (rel != null) {
+                        text.text = "Nueva versión disponible: ${rel.version}"
+                        detail.text = "Tienes la ${BuildConfigCompat.versionName(this)}." +
+                            if (rel.notes.isNotBlank()) "\n\n" + rel.notes.take(600) else ""
+                        detail.visibility = View.VISIBLE
+                        button.text = "Actualizar ahora"
+                    } else {
+                        text.text = "DualScreen está actualizado"
+                        detail.visibility = View.GONE
+                        button.text = "Buscar actualizaciones"
+                    }
+                }.onFailure { e ->
+                    if (userInitiated) text.text = "No se pudo comprobar: ${e.message}"
+                }
+            }
+        }.start()
+    }
+
+    private fun installUpdate(rel: ApkRelease) {
+        if (updateBusy) return
+        if (!AppUpdater.ensureInstallPermission(this)) {
+            toastDialog("Permite que DualScreen instale aplicaciones (se abrió la pantalla de Ajustes) y vuelve a pulsar «Actualizar ahora».")
+            return
+        }
+        updateBusy = true
+        val text = view<TextView>(R.id.updateText)
+        val button = view<Button>(R.id.updateButton)
+        val bar = view<android.widget.ProgressBar>(R.id.updateProgress)
+        button.isEnabled = false
+        bar.progress = 0
+        bar.visibility = View.VISIBLE
+        text.text = "Descargando la versión ${rel.version}…"
+        Thread {
+            val result = runCatching { AppUpdater.downloadAndInstall(this, rel) { p -> runOnUiThread { bar.progress = p } } }
+            runOnUiThread {
+                updateBusy = false
+                button.isEnabled = true
+                bar.visibility = View.GONE
+                result.onSuccess { text.text = "Confirma la instalación en la ventana de Android" }
+                    .onFailure { e -> text.text = "No se pudo actualizar: ${e.message}" }
+            }
+        }.start()
     }
 
     private fun toastDialog(msg: String) {
