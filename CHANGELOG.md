@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones [SemVer](https://semver.org/lang/es/).
 
+## [0.1.7] - 2026-11-19
+
+### Añadido
+- Registro detallado de WebRTC (STUN/TURN/ICE) en el archivo de registro del PC para diagnosticar la conexión remota.
+
 ## [0.1.6] - 2026-11-19
 
 ### Añadido

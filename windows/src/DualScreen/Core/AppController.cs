@@ -54,6 +54,7 @@ public sealed class AppController : IDisposable
     public AppController()
     {
         Instance = this;
+        DualScreen.Remote.SipLogBridge.Install();
         Identity = HostIdentity.LoadOrCreate();
         Pairing = new PairingService(Identity);
         Lan = new LanServer(Identity, OnIncomingStream);
