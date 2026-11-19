@@ -4,5 +4,5 @@
   "exeAssetName": "DualScreen.exe",
   "defaultSignalingUrl": "mqtt+wss://broker.emqx.io:8084/mqtt",
   "updateCheckHours": 6,
-  "iceServersUrl": ""
+  "iceServersUrl": "https://dualscreen-turn.devecchianderson12.workers.dev/ice"
 }

@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones [SemVer](https://semver.org/lang/es/).
 
+## [0.1.4] - 2026-11-19
+
+### Añadido
+- Relé TURN de Cloudflare: la conexión desde otra red (datos móviles, CGNAT) funciona aunque la conexión directa sea imposible.
+
 ## [0.1.3] - 2026-11-18
 
 ### Añadido
