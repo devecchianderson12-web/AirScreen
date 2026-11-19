@@ -9,8 +9,8 @@ using DualScreen.Core;
 namespace DualScreen.Remote;
 
 /// <summary>
-/// Fetches short-lived TURN relay credentials from the DualScreen ICE endpoint (a small Cloudflare Worker that
-/// holds the Cloudflare Realtime TURN API key; see signaling-server/cloudflare-turn-worker). The relay is what makes
+/// Fetches TURN relay credentials from an HTTPS endpoint: Metered.ca's credentials API (free tier) or the
+/// Cloudflare Worker in signaling-server/cloudflare-turn-worker. The relay is what makes
 /// remote connections work when a direct peer-to-peer path is impossible (e.g. phones on mobile carrier CGNAT).
 /// Result: a flat array of {urls, username?, credential?} objects with one URL each.
 /// </summary>
@@ -34,7 +34,8 @@ public static class IceCredentials
             // Credentials live 24 h; refresh well before they expire.
             if (_cached != null && DateTime.UtcNow - _fetchedUtc < TimeSpan.FromHours(6)) return (JsonArray)_cached.DeepClone();
             var root = JsonNode.Parse(await Http.GetStringAsync(url).ConfigureAwait(false));
-            _cached = Normalize(root?["iceServers"]);
+            // Cloudflare Worker: {"iceServers":[…]}; Metered.ca: […] at the top level.
+            _cached = Normalize(root is JsonArray ? root : root?["iceServers"]);
             _fetchedUtc = DateTime.UtcNow;
             Log.Info($"TURN credentials fetched ({_cached.Count} entries)");
             return (JsonArray)_cached.DeepClone();
