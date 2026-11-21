@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 using DualScreen.Core;
@@ -35,6 +36,9 @@ public sealed class DriverClient : IDisposable
         public uint PreferredMode;
         public fixed uint Modes[MaxModes * 3];
     }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DsAddResult { public uint Stage; public int Status; public uint ParseCalls; public int ParseStatus; public uint QueryCalls; }
 
     private readonly SafeFileHandle _handle;
 
@@ -108,7 +112,19 @@ public sealed class DriverClient : IDisposable
             req.Modes[i * 3 + 1] = (uint)modes[i].H;
             req.Modes[i * 3 + 2] = (uint)modes[i].Hz;
         }
-        Ioctl(IOCTL_ADD_MONITOR, &req, sizeof(DsAddMonitor), null, 0);
+        var res = new DsAddResult();
+        int got = Ioctl(IOCTL_ADD_MONITOR, &req, sizeof(DsAddMonitor), &res, sizeof(DsAddResult));
+        if (got >= sizeof(DsAddResult) && res.Status < 0)
+        {
+            string stage = res.Stage switch
+            {
+                1 => "petición inválida", 2 => "conector ocupado", 3 => "IddCxMonitorCreate", 4 => "IddCxMonitorArrival",
+                5 => "adaptador no listo", _ => "etapa " + res.Stage,
+            };
+            string modeList = string.Join(", ", modes.Take((int)req.ModeCount).Select(m => $"{m.W}x{m.H}@{m.Hz}"));
+            Log.Warn($"AddMonitor failed: {stage} 0x{res.Status:X8}, parse calls {res.ParseCalls} (last 0x{res.ParseStatus:X8}), query calls {res.QueryCalls}, modes {modeList}");
+            throw new IOException($"{stage} devolvió 0x{res.Status:X8}");
+        }
     }
 
     public unsafe void RemoveMonitor(uint connector) => Ioctl(IOCTL_REMOVE_MONITOR, &connector, sizeof(uint), null, 0);
@@ -118,10 +134,11 @@ public sealed class DriverClient : IDisposable
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern unsafe bool DeviceIoControl(SafeFileHandle h, uint code, void* inBuf, int inSize, void* outBuf, int outSize, out int returned, IntPtr overlapped);
 
-    private unsafe void Ioctl(uint code, void* inBuf, int inSize, void* outBuf, int outSize)
+    private unsafe int Ioctl(uint code, void* inBuf, int inSize, void* outBuf, int outSize)
     {
-        if (!DeviceIoControl(_handle, code, inBuf, inSize, outBuf, outSize, out _, IntPtr.Zero))
+        if (!DeviceIoControl(_handle, code, inBuf, inSize, outBuf, outSize, out int returned, IntPtr.Zero))
             throw new IOException($"Driver IOCTL 0x{code:X} failed (Win32 error {Marshal.GetLastWin32Error()})");
+        return returned;
     }
 
     private static unsafe string? FindInterfacePath()

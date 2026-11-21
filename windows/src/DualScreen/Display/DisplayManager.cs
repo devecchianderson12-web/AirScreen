@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -44,7 +45,16 @@ public sealed class DisplayManager : IDisposable
         var modes = BuildModeList(lw, lh, hz);
         if (!_monitorPlugged)
         {
-            try { _driver!.AddMonitor(Connector, modes, 0); }
+            try
+            {
+                try { _driver!.AddMonitor(Connector, modes, 0); }
+                catch (IOException first) when (modes.Length > 1 || hz != 60)
+                {
+                    Log.Warn("Retrying the virtual monitor with a single 60 Hz mode: " + first.Message);
+                    modes = new[] { (lw, lh, 60) };
+                    _driver!.AddMonitor(Connector, modes, 0);
+                }
+            }
             catch (Exception ex)
             {
                 // The driver host may have restarted (its handle is now dead): reopen next time.

@@ -28,4 +28,13 @@ typedef struct _DS_ADD_MONITOR {
     UINT32 PreferredMode;    // index into Modes
     DS_MODE Modes[DS_MAX_MODES];
 } DS_ADD_MONITOR;
+// Optional output of IOCTL_DS_ADD_MONITOR: when the caller passes this buffer the IOCTL always completes
+// successfully and the real outcome is reported here (a failed IOCTL cannot return data).
+typedef struct _DS_ADD_RESULT {
+    UINT32 Stage;        // 0 ok, 1 bad request, 2 slot busy, 3 IddCxMonitorCreate, 4 IddCxMonitorArrival, 5 adapter not ready
+    INT32  Status;       // NTSTATUS of that stage
+    UINT32 ParseCalls;   // EvtIddCxParseMonitorDescription calls during this request
+    INT32  ParseStatus;  // last status returned by it
+    UINT32 QueryCalls;   // EvtIddCxMonitorQueryTargetModes calls during this request
+} DS_ADD_RESULT;
 #pragma pack(pop)

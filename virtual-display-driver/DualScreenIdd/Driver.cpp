@@ -25,12 +25,17 @@ EVT_IDD_CX_MONITOR_QUERY_TARGET_MODES DsMonitorQueryModes;
 EVT_IDD_CX_MONITOR_ASSIGN_SWAPCHAIN DsMonitorAssignSwapChain;
 EVT_IDD_CX_MONITOR_UNASSIGN_SWAPCHAIN DsMonitorUnassignSwapChain;
 EVT_WDF_OBJECT_CONTEXT_CLEANUP DsMonitorCleanup;
+static NTSTATUS DsParseMonitorDescriptionCore(const IDARG_IN_PARSEMONITORDESCRIPTION* pInArgs, IDARG_OUT_PARSEMONITORDESCRIPTION* pOutArgs);
 
 // Most recently added monitor's modes: used for GetDefaultDescriptionModes (no EDID path).
 static std::vector<Mode> g_lastModes = { { 1920, 1080, 60 } };
 
 // One adapter per device node (the driver is installed as a single root-enumerated device).
 static AdapterContext* g_adapter = nullptr;
+
+// Diagnostics for IOCTL_DS_ADD_MONITOR (see DS_ADD_RESULT).
+static std::atomic<UINT32> g_stage{ 0 }, g_parseCalls{ 0 }, g_queryCalls{ 0 };
+static std::atomic<INT32> g_parseStatus{ 0 };
 
 // ---------------------------------------------------------------------------------------------- EDID
 
@@ -243,7 +248,9 @@ NTSTATUS DsAdapterCommitModes(IDDCX_ADAPTER AdapterObject, const IDARG_IN_COMMIT
 
 NTSTATUS AdapterContext::AddMonitor(const DS_ADD_MONITOR& req)
 {
+    g_stage = 5;
     if (Adapter == nullptr) return STATUS_DEVICE_NOT_READY;
+    g_stage = 1;
     if (req.ConnectorIndex >= DS_MAX_MONITORS || req.ModeCount == 0 || req.ModeCount > DS_MAX_MODES) return STATUS_INVALID_PARAMETER;
 
     std::vector<Mode> modes;
@@ -261,6 +268,7 @@ NTSTATUS AdapterContext::AddMonitor(const DS_ADD_MONITOR& req)
         // arrival call back into ParseMonitorDescription/QueryTargetModes on this same thread, and those
         // take m_lock too (std::mutex is not recursive: re-locking would terminate the driver host).
         std::lock_guard<std::mutex> lock(m_lock);
+        g_stage = 2;
         if (slot.InUse) return STATUS_DEVICE_ALREADY_ATTACHED;
         slot.InUse = true;
         slot.Monitor = nullptr;
@@ -295,6 +303,7 @@ NTSTATUS AdapterContext::AddMonitor(const DS_ADD_MONITOR& req)
     in.ObjectAttributes = &attr;
     in.pMonitorInfo = &info;
     IDARG_OUT_MONITORCREATE out = {};
+    g_stage = 3;
     NTSTATUS status = IddCxMonitorCreate(Adapter, &in, &out);
     if (!NT_SUCCESS(status)) { release(); return status; }
 
@@ -306,6 +315,7 @@ NTSTATUS AdapterContext::AddMonitor(const DS_ADD_MONITOR& req)
     }
 
     IDARG_OUT_MONITORARRIVAL arrival = {};
+    g_stage = 4;
     status = IddCxMonitorArrival(out.MonitorObject, &arrival);
     if (!NT_SUCCESS(status))
     {
@@ -313,6 +323,7 @@ NTSTATUS AdapterContext::AddMonitor(const DS_ADD_MONITOR& req)
         WdfObjectDelete(out.MonitorObject);
         return status;
     }
+    g_stage = 0;
     return STATUS_SUCCESS;
 }
 
@@ -367,6 +378,14 @@ void DsMonitorCleanup(WDFOBJECT Object)
 _Use_decl_annotations_
 NTSTATUS DsParseMonitorDescription(const IDARG_IN_PARSEMONITORDESCRIPTION* pInArgs, IDARG_OUT_PARSEMONITORDESCRIPTION* pOutArgs)
 {
+    g_parseCalls++;
+    NTSTATUS st = DsParseMonitorDescriptionCore(pInArgs, pOutArgs);
+    g_parseStatus = st;
+    return st;
+}
+
+NTSTATUS DsParseMonitorDescriptionCore(const IDARG_IN_PARSEMONITORDESCRIPTION* pInArgs, IDARG_OUT_PARSEMONITORDESCRIPTION* pOutArgs)
+{
     std::vector<Mode> modes;
     UINT32 preferred = 0;
     // The adapter context is a singleton per device; find it through any monitor-independent path.
@@ -401,6 +420,7 @@ NTSTATUS DsMonitorGetDefaultModes(IDDCX_MONITOR MonitorObject, const IDARG_IN_GE
 _Use_decl_annotations_
 NTSTATUS DsMonitorQueryModes(IDDCX_MONITOR MonitorObject, const IDARG_IN_QUERYTARGETMODES* pInArgs, IDARG_OUT_QUERYTARGETMODES* pOutArgs)
 {
+    g_queryCalls++;
     std::vector<Mode> modes;
     if (g_adapter == nullptr || !g_adapter->ModesForMonitor(MonitorObject, modes)) modes = g_lastModes;
 
@@ -433,7 +453,6 @@ NTSTATUS DsMonitorUnassignSwapChain(IDDCX_MONITOR MonitorObject)
 _Use_decl_annotations_
 VOID DsDeviceIoControl(WDFDEVICE Device, WDFREQUEST Request, size_t OutputBufferLength, size_t InputBufferLength, ULONG IoControlCode)
 {
-    UNREFERENCED_PARAMETER(OutputBufferLength);
     UNREFERENCED_PARAMETER(InputBufferLength);
     AdapterContext* ctx = WdfObjectGet_DeviceContextWrapper(Device)->pContext;
     NTSTATUS status = STATUS_INVALID_DEVICE_REQUEST;
@@ -452,7 +471,23 @@ VOID DsDeviceIoControl(WDFDEVICE Device, WDFREQUEST Request, size_t OutputBuffer
     {
         DS_ADD_MONITOR* in = nullptr;
         status = WdfRequestRetrieveInputBuffer(Request, sizeof(DS_ADD_MONITOR), (PVOID*)&in, nullptr);
-        if (NT_SUCCESS(status)) status = ctx->AddMonitor(*in);
+        if (NT_SUCCESS(status))
+        {
+            g_parseCalls = 0; g_queryCalls = 0; g_parseStatus = 0;
+            status = ctx->AddMonitor(*in);
+            DS_ADD_RESULT* res = nullptr;
+            if (OutputBufferLength >= sizeof(DS_ADD_RESULT) &&
+                NT_SUCCESS(WdfRequestRetrieveOutputBuffer(Request, sizeof(DS_ADD_RESULT), (PVOID*)&res, nullptr)))
+            {
+                res->Stage = NT_SUCCESS(status) ? 0 : g_stage.load();
+                res->Status = status;
+                res->ParseCalls = g_parseCalls.load();
+                res->ParseStatus = g_parseStatus.load();
+                res->QueryCalls = g_queryCalls.load();
+                info = sizeof(DS_ADD_RESULT);
+                status = STATUS_SUCCESS;
+            }
+        }
         break;
     }
     case IOCTL_DS_REMOVE_MONITOR:

@@ -2,6 +2,14 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones [SemVer](https://semver.org/lang/es/).
 
+## [0.2.6] - 2026-11-21
+
+### Corregido
+- Pantalla extendida: si Windows rechaza la lista de modos del monitor virtual («Win32 error 87»), DualScreen reintenta con un solo modo a 60 Hz antes de pasar a modo espejo.
+
+### Añadido
+- El controlador informa en qué paso falla la creación del monitor (y qué consultas hizo Windows); queda en el registro de DualScreen para diagnosticar.
+
 ## [0.2.5] - 2026-11-21
 
 ### Corregido
