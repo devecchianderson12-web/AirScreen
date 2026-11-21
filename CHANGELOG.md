@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones [SemVer](https://semver.org/lang/es/).
 
+## [0.2.1] - 2026-11-21
+
+### Corregido
+- «Instalar controlador» fallaba con «certificado de raíz no compatible con el proveedor de confianza». El instalador ahora agrega el certificado propio del controlador a los certificados de confianza del equipo (raíz y editores de confianza) antes de instalarlo. Como es un controlador de modo usuario (UMDF) no hace falta el modo de prueba y Secure Boot sigue activo. Al desinstalar se quita el certificado.
+
 ## [0.2.0] - 2026-11-21
 
 ### Añadido

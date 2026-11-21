@@ -465,7 +465,7 @@ public partial class MainWindow : Window
         DriverDetail.Text = installed
             ? "Windows puede crear el monitor virtual DualScreen (Configuración → Sistema → Pantalla)."
             : DriverInstaller.HasEmbeddedPackage
-                ? "Necesario para el modo extendido. Se pedirá permiso de administrador una sola vez."
+                ? "Necesario para el modo extendido. Se pedirá permiso de administrador una sola vez y se instalará también el certificado del controlador DualScreen."
                 : "Esta compilación no incluye el paquete del controlador (consulta docs/DRIVER.md).";
         DriverInstallButton.Visibility = installed ? Visibility.Collapsed : Visibility.Visible;
         DriverUninstallButton.Visibility = installed ? Visibility.Visible : Visibility.Collapsed;

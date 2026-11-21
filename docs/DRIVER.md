@@ -26,7 +26,14 @@ Windows 10/11 de 64 bits solo carga controladores firmados de forma confiable. H
 
 No hay forma legítima de evitar esto; "ocultarlo" o desactivar protecciones del usuario no es aceptable.
 
-### Opción A — Firma de prueba (desarrollo / uso personal)
+### Opción A — Certificado propio (predeterminada)
+DualScreenIdd es un controlador de **modo usuario** (UMDF 2 / IddCx). Desde la versión 0.2.1, *Instalar* agrega el
+certificado `DualScreenTest.cer` que acompaña al paquete a **Entidades de certificación raíz de confianza** y
+**Editores de confianza** del equipo (con el mismo aviso UAC) y luego instala el controlador: no hace falta modo de
+prueba ni desactivar Secure Boot. *Desinstalar* quita esos certificados.
+
+Si aun así Windows lo rechazara (directivas de empresa, HVCI estricto), usa el procedimiento manual:
+
 1. Abre DualScreen y pulsa Configuración → Controlador → Instalar una vez (fallará por la firma, pero extrae el
    paquete). El certificado queda en `%LOCALAPPDATA%\DualScreen\driver\package\DualScreenTest.cer`.
 2. Desactiva Secure Boot en la BIOS/UEFI.

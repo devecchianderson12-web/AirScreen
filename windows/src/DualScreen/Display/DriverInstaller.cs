@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -99,6 +100,11 @@ public static class DriverInstaller
     {
         string inf = ExtractPackage();
 
+        // 0) The package is signed with DualScreen's own certificate (shipped next to the INF). DualScreenIdd is a
+        //    user-mode (UMDF) driver, so trusting that certificate on this PC is enough for Windows to accept it:
+        //    no test mode and Secure Boot stays on.
+        TrustPackageCertificate(Path.GetDirectoryName(inf)!);
+
         // 1) Stage the package in the driver store (validates the signature/catalog).
         var (code, output) = RunTool("pnputil.exe", $"/add-driver \"{inf}\" /install");
         Log.Info("pnputil: " + output);
@@ -135,6 +141,39 @@ public static class DriverInstaller
         return reboot ? "Controlador instalado. Reinicia Windows para completar." : "Controlador instalado correctamente.";
     }
 
+    private const string CertSubject = "CN=DualScreen Test Driver";
+
+    private static void TrustPackageCertificate(string dir)
+    {
+        string cer = Path.Combine(dir, "DualScreenTest.cer");
+        if (!File.Exists(cer)) return; // signed with a publicly trusted certificate: nothing to add
+        using var cert = new X509Certificate2(cer);
+        if (!string.Equals(cert.Subject, CertSubject, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("El certificado del paquete del controlador no es el esperado.");
+        foreach (var name in new[] { StoreName.Root, StoreName.TrustedPublisher })
+        {
+            using var store = new X509Store(name, StoreLocation.LocalMachine);
+            store.Open(OpenFlags.ReadWrite);
+            if (store.Certificates.Find(X509FindType.FindByThumbprint, cert.Thumbprint, false).Count == 0) store.Add(cert);
+        }
+        Log.Info($"Driver certificate trusted ({cert.Thumbprint})");
+    }
+
+    private static void RemovePackageCertificates()
+    {
+        foreach (var name in new[] { StoreName.Root, StoreName.TrustedPublisher })
+        {
+            try
+            {
+                using var store = new X509Store(name, StoreLocation.LocalMachine);
+                store.Open(OpenFlags.ReadWrite);
+                foreach (var c in store.Certificates.Find(X509FindType.FindBySubjectDistinguishedName, CertSubject, false))
+                    store.Remove(c);
+            }
+            catch (Exception ex) { Log.Warn("Removing driver certificate failed: " + ex.Message); }
+        }
+    }
+
     private static string Uninstall()
     {
         int removed = 0;
@@ -150,6 +189,7 @@ public static class DriverInstaller
             // Only delete if the same block really refers to our original INF.
             RunTool("pnputil.exe", $"/delete-driver {published} /uninstall /force");
         }
+        RemovePackageCertificates();
         Log.Info($"Driver uninstalled ({removed} device nodes)");
         return "Controlador desinstalado.";
     }
@@ -198,9 +238,9 @@ public static class DriverInstaller
     private static string ExplainPnpUtilFailure(string output)
     {
         if (output.Contains("signature", StringComparison.OrdinalIgnoreCase) || output.Contains("firma", StringComparison.OrdinalIgnoreCase)
+            || output.Contains("certificado", StringComparison.OrdinalIgnoreCase) || output.Contains("certificate", StringComparison.OrdinalIgnoreCase)
             || output.Contains("0xe0000242", StringComparison.OrdinalIgnoreCase) || output.Contains("0x800b0109", StringComparison.OrdinalIgnoreCase))
-            return "Windows rechazó la firma del controlador. Esta compilación está firmada con un certificado de prueba: " +
-                   "consulta docs/DRIVER.md (modo de prueba o firma de Microsoft).";
+            return "Windows rechazó la firma del controlador aunque se instaló su certificado. Detalle de pnputil:\n" + output.Trim();
         return "pnputil falló: " + output.Trim();
     }
 
