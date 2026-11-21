@@ -2,10 +2,17 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones [SemVer](https://semver.org/lang/es/).
 
+## [0.2.4] - 2026-11-21
+
+### Corregido
+- El controlador de pantalla virtual se cerraba al crear el monitor («Driver IOCTL 0x222004 failed (Win32 error 1291)») y la conexión se cortaba, con o sin código. Causa: el controlador volvía a bloquear su propio cerrojo cuando Windows le consultaba los modos durante la creación del monitor. Corregido.
+- Si la pantalla extendida falla por cualquier motivo, la conexión ya no se corta: se pasa a modo espejo y se avisa.
+
 ## [0.2.3] - 2026-11-21
 
 ### Corregido
-- Al conectarse un monitor (por ejemplo con «Iniciar» desde la notebook) la PC mostraba «Access to the path '\?oot#display#…' is denied» y cortaba: el controlador solo dejaba usarlo a administradores. Ahora se instala con permisos para el usuario, y si falta ese permiso la transmisión sigue en modo espejo en lugar de fallar.
+- Al conectarse un monitor (por ejemplo con «Iniciar» desde la notebook) la PC mostraba «Access to the path '\?
+oot#display#…' is denied» y cortaba: el controlador solo dejaba usarlo a administradores. Ahora se instala con permisos para el usuario, y si falta ese permiso la transmisión sigue en modo espejo en lugar de fallar.
 - Si el controlador ya estaba instalado, Configuración → Controlador muestra **Reparar** (un aviso de administrador) para corregir los permisos.
 
 ## [0.2.2] - 2026-11-21

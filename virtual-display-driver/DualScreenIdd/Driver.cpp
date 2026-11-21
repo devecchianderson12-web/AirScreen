@@ -255,13 +255,26 @@ NTSTATUS AdapterContext::AddMonitor(const DS_ADD_MONITOR& req)
         modes.push_back({ m.Width, m.Height, m.RefreshHz });
     }
 
-    std::lock_guard<std::mutex> lock(m_lock);
     MonitorSlot& slot = m_slots[req.ConnectorIndex];
-    if (slot.InUse) return STATUS_DEVICE_ALREADY_ATTACHED;
-    slot.Modes = modes;
-    slot.Preferred = req.PreferredMode < modes.size() ? req.PreferredMode : 0;
-    slot.Edid = BuildEdid(req.ConnectorIndex);
-    g_lastModes = modes;
+    {
+        // Reserve the slot under the lock, but release it before calling IddCx: monitor creation and
+        // arrival call back into ParseMonitorDescription/QueryTargetModes on this same thread, and those
+        // take m_lock too (std::mutex is not recursive: re-locking would terminate the driver host).
+        std::lock_guard<std::mutex> lock(m_lock);
+        if (slot.InUse) return STATUS_DEVICE_ALREADY_ATTACHED;
+        slot.InUse = true;
+        slot.Monitor = nullptr;
+        slot.Modes = modes;
+        slot.Preferred = req.PreferredMode < modes.size() ? req.PreferredMode : 0;
+        slot.Edid = BuildEdid(req.ConnectorIndex);
+        g_lastModes = modes;
+    }
+    auto release = [&]()
+    {
+        std::lock_guard<std::mutex> lock(m_lock);
+        slot.InUse = false;
+        slot.Monitor = nullptr;
+    };
 
     WDF_OBJECT_ATTRIBUTES attr;
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attr, MonitorContextWrapper);
@@ -283,20 +296,23 @@ NTSTATUS AdapterContext::AddMonitor(const DS_ADD_MONITOR& req)
     in.pMonitorInfo = &info;
     IDARG_OUT_MONITORCREATE out = {};
     NTSTATUS status = IddCxMonitorCreate(Adapter, &in, &out);
-    if (!NT_SUCCESS(status)) return status;
+    if (!NT_SUCCESS(status)) { release(); return status; }
 
     auto* ctx = new MonitorContext{ out.MonitorObject, nullptr };
     WdfObjectGet_MonitorContextWrapper(out.MonitorObject)->pContext = ctx;
+    {
+        std::lock_guard<std::mutex> lock(m_lock);
+        slot.Monitor = out.MonitorObject; // QueryTargetModes during arrival can now find this monitor's modes
+    }
 
     IDARG_OUT_MONITORARRIVAL arrival = {};
     status = IddCxMonitorArrival(out.MonitorObject, &arrival);
     if (!NT_SUCCESS(status))
     {
+        release();
         WdfObjectDelete(out.MonitorObject);
         return status;
     }
-    slot.InUse = true;
-    slot.Monitor = out.MonitorObject;
     return STATUS_SUCCESS;
 }
 
@@ -312,7 +328,7 @@ NTSTATUS AdapterContext::RemoveMonitor(UINT32 connector)
         slot.InUse = false;
         slot.Monitor = nullptr;
     }
-    return IddCxMonitorDeparture(monitor);
+    return monitor ? IddCxMonitorDeparture(monitor) : STATUS_SUCCESS;
 }
 
 void AdapterContext::RemoveAll()

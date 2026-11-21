@@ -309,7 +309,20 @@ public sealed class AppController : IDisposable
             }
             EffectiveMode = displayMode;
 
-            var target = await _display.AcquireAsync(displayMode, mode.Width, mode.Height, mode.Fps, s.Orientation, session.Token).ConfigureAwait(false);
+            DisplayTarget target;
+            try
+            {
+                target = await _display.AcquireAsync(displayMode, mode.Width, mode.Height, mode.Fps, s.Orientation, session.Token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (displayMode == DisplayMode.Extended && ex is not OperationCanceledException)
+            {
+                // Never lose the connection because of the virtual display: show the main screen instead.
+                Log.Error("Extended mode failed, falling back to mirror", ex);
+                displayMode = DisplayMode.Mirror;
+                EffectiveMode = displayMode;
+                Notify?.Invoke("Modo espejo", "No se pudo crear la pantalla extendida (" + ex.Message + "). Se muestra el modo espejo.");
+                target = await _display.AcquireAsync(DisplayMode.Mirror, mode.Width, mode.Height, mode.Fps, s.Orientation, session.Token).ConfigureAwait(false);
+            }
             DisplayDevice = target.DeviceName;
             bool extended = displayMode == DisplayMode.Extended;
             int outW = extended ? target.Width : mode.Width;

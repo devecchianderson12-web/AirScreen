@@ -7,6 +7,8 @@ using DualScreen.Core;
 
 namespace DualScreen.Display;
 
+public sealed class DriverFailedException(string message, Exception inner) : Exception(message, inner);
+
 public sealed record DisplayTarget(string DeviceName, IntPtr Monitor, int Width, int Height, int RefreshHz, bool IsVirtual);
 
 /// <summary>
@@ -42,7 +44,14 @@ public sealed class DisplayManager : IDisposable
         var modes = BuildModeList(lw, lh, hz);
         if (!_monitorPlugged)
         {
-            _driver!.AddMonitor(Connector, modes, 0);
+            try { _driver!.AddMonitor(Connector, modes, 0); }
+            catch (Exception ex)
+            {
+                // The driver host may have restarted (its handle is now dead): reopen next time.
+                _driver?.Dispose();
+                _driver = null;
+                throw new DriverFailedException("El controlador de pantalla virtual no pudo crear el monitor: " + ex.Message, ex);
+            }
             _monitorPlugged = true;
             Log.Info($"Virtual monitor plugged: {lw}x{lh}@{hz}");
         }
