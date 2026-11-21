@@ -23,8 +23,10 @@
 - **Configuración**: inicio con Windows, notificaciones, red local/remota, controlador, registros.
 
 ### Usar como monitor (otra PC o notebook como segunda pantalla)
-1. En la PC que transmite: abrí DualScreen → **Conexión** para ver el código de 6 dígitos.
-2. En la notebook: DualScreen → **Usar como monitor**, elegí la PC en la lista, escribí el código y pulsá **Vincular e iniciar**.
+1. Abrí DualScreen en las dos PCs (misma red).
+2. En la notebook: DualScreen → **Usar como monitor**. En *En esta red* aparece la otra PC con su nombre y su IP:
+   un clic en ella (o en **Conectar**) y listo, sin código. Si la otra PC tiene desactivado «Conectar sin código en la
+   red local», usá *Vincular con código* con el código de su sección **Conexión**.
    La primera vez Windows puede preguntar si permite DualScreen en redes privadas: aceptá (el receptor recibe la conexión).
 3. Queda guardada en *Equipos vinculados*: la próxima vez, **Iniciar** (o el menú del icono de notificaciones) y listo.
 4. La pantalla queda completa, sin barras ni menús. La pantalla táctil, el lápiz, el mouse y el teclado de la notebook

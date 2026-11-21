@@ -2,6 +2,15 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones [SemVer](https://semver.org/lang/es/).
 
+## [0.2.2] - 2026-11-21
+
+### Añadido
+- **Conectar sin código en la red local**: en *Usar como monitor* aparecen todos los equipos con DualScreen de la red con su nombre y, debajo, su IP; un clic (o «Conectar») y listo. Queda guardado para la próxima. Se puede desactivar en la PC emisora (Configuración → Red local); entonces se usa «Vincular con código».
+- Opción **Iniciar minimizado** (junto a «Iniciar con Windows»): si se desactiva, la ventana se abre al arrancar.
+
+### Cambiado
+- Nuevo tema: azul noche con acento violeta, tarjetas más redondeadas, botones con sombra suave y estados en turquesa/coral.
+
 ## [0.2.1] - 2026-11-21
 
 ### Corregido

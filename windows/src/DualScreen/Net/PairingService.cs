@@ -93,10 +93,11 @@ public sealed class PairingService
         return Convert.ToHexString(h.ComputeHash(Encoding.UTF8.GetBytes($"DSPAIR1|{fingerprint}|{deviceId}|{nonce}"))).ToLowerInvariant();
     }
 
-    public enum AuthResult { Ok, Paired, BadToken, BadCode, CodeExpired, TooManyAttempts, Malformed }
+    public enum AuthResult { Ok, Paired, BadToken, BadCode, CodeExpired, TooManyAttempts, Malformed, CodeRequired }
 
     /// <summary>Authenticates a HELLO. On successful pairing returns the new device token (only time it exists in clear).</summary>
-    public AuthResult Authenticate(HelloMsg hello, out string? newToken)
+    /// <param name="lanAllowed">The connection came over the local network and code-less linking is enabled.</param>
+    public AuthResult Authenticate(HelloMsg hello, out string? newToken, bool lanAllowed = false)
     {
         newToken = null;
         if (string.IsNullOrWhiteSpace(hello.DeviceId) || hello.DeviceId.Length > 128) return AuthResult.Malformed;
@@ -117,6 +118,16 @@ public sealed class PairingService
             return AuthResult.Ok;
         }
 
+        if (hello.Auth.Mode == "lan")
+        {
+            // Code-less linking on the local network (user setting). Still issues a token, so the device is
+            // listed (and revocable) like any paired one.
+            if (!lanAllowed) return AuthResult.CodeRequired;
+            newToken = IssueToken(hello);
+            Changed?.Invoke();
+            return AuthResult.Paired;
+        }
+
         if (hello.Auth.Mode == "pair")
         {
             if (string.IsNullOrEmpty(hello.Auth.Proof) || string.IsNullOrEmpty(hello.Auth.Nonce) || hello.Auth.Nonce.Length < 16)
@@ -132,24 +143,32 @@ public sealed class PairingService
                     return AuthResult.BadCode;
                 }
                 _code = null; // single use
-                byte[] tokenBytes = RandomNumberGenerator.GetBytes(32);
-                newToken = Convert.ToBase64String(tokenBytes);
-                _devices.RemoveAll(d => d.DeviceId == hello.DeviceId);
-                _devices.Add(new TrustedDevice
-                {
-                    DeviceId = hello.DeviceId,
-                    Name = Truncate(hello.DeviceName, 64),
-                    Model = Truncate(hello.Model, 64),
-                    TokenHash = SecretStore.Sha256Hex(Encoding.UTF8.GetBytes(newToken)),
-                    PairedUtc = DateTime.UtcNow,
-                    LastSeenUtc = DateTime.UtcNow,
-                });
-                SaveDevices();
             }
+            newToken = IssueToken(hello);
             Changed?.Invoke();
             return AuthResult.Paired;
         }
         return AuthResult.Malformed;
+    }
+
+    private string IssueToken(HelloMsg hello)
+    {
+        string token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+        lock (_gate)
+        {
+            _devices.RemoveAll(d => d.DeviceId == hello.DeviceId);
+            _devices.Add(new TrustedDevice
+            {
+                DeviceId = hello.DeviceId,
+                Name = Truncate(hello.DeviceName, 64),
+                Model = Truncate(hello.Model, 64),
+                TokenHash = SecretStore.Sha256Hex(Encoding.UTF8.GetBytes(token)),
+                PairedUtc = DateTime.UtcNow,
+                LastSeenUtc = DateTime.UtcNow,
+            });
+            SaveDevices();
+        }
+        return token;
     }
 
     public void Revoke(string deviceId)

@@ -75,6 +75,7 @@ El PC solo los aplica si «Permitir control desde el monitor vinculado» está a
   "proto": 1, "deviceId": "uuid", "deviceName": "Pixel 8", "model": "Google Pixel 8", "appVersion": "0.1.0",
   "auth": {"mode": "token", "token": "base64"}            // dispositivo emparejado
        // o {"mode":"pair","nonce":"hex≥16","proof":"hex"}  // primer emparejamiento
+       // o {"mode":"lan"}  // sin código: solo por la red local y si el PC lo permite (si no, WELCOME error "code-required")
   "caps": {
     "screenWidth": 1080, "screenHeight": 2400, "densityDpi": 420,
     "refreshRates": [60.0, 120.0],

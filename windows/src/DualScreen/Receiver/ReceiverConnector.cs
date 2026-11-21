@@ -251,6 +251,7 @@ public static class ReceiverConnector
         "not-paired" => "El otro equipo revocó el acceso. Volvé a vincularlo con un código nuevo.",
         "busy" => "El otro equipo ya está transmitiendo a otro dispositivo.",
         "protocol-mismatch" => "Versiones incompatibles: actualizá DualScreen en ambos equipos.",
+        "code-required" => "Ese equipo pide el código de vinculación: miralo en su sección Conexión y escribilo en «Vincular con código».",
         _ => "Conexión rechazada.",
     };
 

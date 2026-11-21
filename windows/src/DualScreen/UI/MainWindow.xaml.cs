@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -146,8 +147,8 @@ public partial class MainWindow : Window
             actions.Children.Add(nk);
             var start = new Button { Style = (Style)FindResource("AccentButton"), Margin = new Thickness(16, 0, 8, 0), IsEnabled = !_rx.Busy };
             var sp = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
-            sp.Children.Add(new TextBlock { Text = "\uE768", Style = (Style)FindResource("Icon"), Foreground = Brushes.Black, FontSize = 14, Margin = new Thickness(0, 0, 8, 0) });
-            sp.Children.Add(new TextBlock { Text = "Iniciar", Foreground = Brushes.Black });
+            sp.Children.Add(new TextBlock { Text = "\uE768", Style = (Style)FindResource("Icon"), Foreground = Brushes.White, FontSize = 14, Margin = new Thickness(0, 0, 8, 0) });
+            sp.Children.Add(new TextBlock { Text = "Iniciar", Foreground = Brushes.White });
             start.Content = sp;
             start.Click += async (_, _) => await StartReceiving(h);
             actions.Children.Add(start);
@@ -180,10 +181,11 @@ public partial class MainWindow : Window
     private void RefreshSeenHosts()
     {
         var seen = _rx.Beacons.Hosts;
-        string sig = string.Join("|", seen.Select(h => h.HostId + h.Name + h.Address));
+        string sig = string.Join("|", seen.Select(h => h.HostId + h.Name + h.Address + (ReceiverStore.Find(h.HostId) != null))) + "|" + _rx.Busy;
         if (sig != _seenSignature)
         {
             _seenSignature = sig;
+            BuildSeenList(seen);
             string? selected = (SeenHostBox.SelectedItem as ComboBoxItem)?.Tag as string;
             SeenHostBox.Items.Clear();
             foreach (var h in seen)
@@ -194,10 +196,49 @@ public partial class MainWindow : Window
         SeenHint.Text = _rx.Beacons.Error != null
             ? _rx.Beacons.Error
             : seen.Count == 0
-                ? "Buscando PCs con DualScreen en esta red… (abrí DualScreen en la otra PC; si Windows pregunta, permití el acceso a redes privadas)."
-                : $"{seen.Count} equipo(s) encontrado(s) en la red.";
+                ? "Buscando equipos con DualScreen en esta red… (abrí DualScreen en la otra PC; si Windows pregunta, permití el acceso a redes privadas)."
+                : "Hacé clic en un equipo o en Conectar.";
         PairButton.IsEnabled = !_rx.Busy;
     }
+
+    /// <summary>Every DualScreen PC on this network: name, IP below, one click to connect (no code).</summary>
+    private void BuildSeenList(IReadOnlyList<SeenHost> seen)
+    {
+        SeenList.Children.Clear();
+        foreach (var h in seen)
+        {
+            bool saved = ReceiverStore.Find(h.HostId) != null;
+            var card = new Border { Style = (Style)FindResource("Card"), Cursor = System.Windows.Input.Cursors.Hand };
+            var dock = new DockPanel();
+            var connect = new Button { Style = (Style)FindResource("AccentButton"), IsEnabled = !_rx.Busy, VerticalAlignment = VerticalAlignment.Center };
+            var sp = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+            sp.Children.Add(new TextBlock { Text = "\uE71B", Style = (Style)FindResource("Icon"), Foreground = Brushes.White, FontSize = 14, Margin = new Thickness(0, 0, 8, 0) });
+            sp.Children.Add(new TextBlock { Text = saved ? "Iniciar" : "Conectar", Foreground = Brushes.White });
+            connect.Content = sp;
+            connect.Click += async (_, e) => { e.Handled = true; await ConnectSeen(h); };
+            DockPanel.SetDock(connect, Dock.Right);
+            dock.Children.Add(connect);
+            var left = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+            left.Children.Add(new TextBlock { Text = "\uE7F4", Style = (Style)FindResource("Icon"), Margin = new Thickness(0, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center });
+            var info = new StackPanel();
+            info.Children.Add(new TextBlock { Text = h.Name, FontWeight = FontWeights.SemiBold });
+            info.Children.Add(new TextBlock { Text = h.Address + (saved ? " · vinculado" : ""), Style = (Style)FindResource("CaptionText") });
+            left.Children.Add(info);
+            dock.Children.Add(left);
+            card.Child = dock;
+            card.MouseLeftButtonUp += async (_, _) => { if (!_rx.Busy) await ConnectSeen(h); };
+            SeenList.Children.Add(card);
+        }
+    }
+
+    private async Task ConnectSeen(SeenHost h)
+    {
+        await _rx.ConnectAsync(h, PairNoKeyboard.IsChecked == true, CurrentMonitor());
+        RefreshAll();
+    }
+
+    private void StartMinimized_Click(object sender, RoutedEventArgs e) =>
+        SettingsStore.Update(s => s.StartMinimized = StartMinimizedToggle.IsChecked == true);
 
     private void RefreshReceiveStatus()
     {
@@ -490,6 +531,8 @@ public partial class MainWindow : Window
         HostNameBox.Text = s.HostName;
         LanToggle.IsChecked = s.LanEnabled;
         AnnounceToggle.IsChecked = s.AnnounceOnLan;
+        LanNoCodeToggle.IsChecked = s.LanNoCode;
+        StartMinimizedToggle.IsChecked = s.StartMinimized;
         RemoteInputToggle.IsChecked = s.AllowRemoteInput;
         PortBox.Text = s.LanPort.ToString();
         RemoteToggle.IsChecked = s.RemoteEnabled;
@@ -606,6 +649,7 @@ public partial class MainWindow : Window
         {
             s.LanEnabled = LanToggle.IsChecked == true;
             s.AnnounceOnLan = AnnounceToggle.IsChecked == true;
+            s.LanNoCode = LanNoCodeToggle.IsChecked == true;
             if (int.TryParse(PortBox.Text, out int port) && port is > 1024 and < 65536) s.LanPort = port;
             s.RemoteEnabled = RemoteToggle.IsChecked == true;
             s.SignalingUrl = SignalingBox.Text.Trim();
@@ -635,21 +679,18 @@ internal static class Backdrop
     private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
     private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
     private const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
+    private const int DWMWA_BORDER_COLOR = 34;
 
     public static void Apply(Window w)
     {
         var hwnd = new WindowInteropHelper(w).Handle;
-        int dark = 1, round = 2, mica = 2;
+        int dark = 1, round = 2, none = 1, border = 0x00422E2A; // COLORREF 0x00BBGGRR = #2A2E42
         DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
         DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
-        if (Environment.OSVersion.Version.Build >= 22621 &&
-            DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ref mica, sizeof(int)) == 0)
-        {
-            // Let the Mica material show through the WPF surface.
-            w.Background = Brushes.Transparent;
-            if (HwndSource.FromHwnd(hwnd) is { CompositionTarget: not null } src)
-                src.CompositionTarget.BackgroundColor = Colors.Transparent;
-        }
+        DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, ref border, sizeof(int));
+        // Solid deep-navy surface (the theme's WindowBrush) instead of the translucent Mica material.
+        if (Environment.OSVersion.Version.Build >= 22621)
+            DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ref none, sizeof(int));
     }
 }
 

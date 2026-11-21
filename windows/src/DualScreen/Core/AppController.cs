@@ -149,7 +149,8 @@ public sealed class AppController : IDisposable
 
         if (hello.Proto != AppInfo.ProtocolVersion) { await Reject("protocol-mismatch").ConfigureAwait(false); return; }
 
-        var auth = Pairing.Authenticate(hello, out string? newToken);
+        bool lanAllowed = SettingsStore.Current.LanNoCode && transport.StartsWith("LAN", StringComparison.Ordinal);
+        var auth = Pairing.Authenticate(hello, out string? newToken, lanAllowed);
         if (auth is not (PairingService.AuthResult.Ok or PairingService.AuthResult.Paired))
         {
             await Reject(auth switch
@@ -158,6 +159,7 @@ public sealed class AppController : IDisposable
                 PairingService.AuthResult.BadCode => "bad-code",
                 PairingService.AuthResult.CodeExpired => "code-expired",
                 PairingService.AuthResult.TooManyAttempts => "too-many-attempts",
+                PairingService.AuthResult.CodeRequired => "code-required",
                 _ => "malformed",
             }).ConfigureAwait(false);
             return;

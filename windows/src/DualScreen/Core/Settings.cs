@@ -39,6 +39,10 @@ public sealed class AppSettings
     public bool AnnounceOnLan { get; set; } = true;
     /// <summary>Let a linked receiver control this PC with its touchscreen, pen, mouse and keyboard.</summary>
     public bool AllowRemoteInput { get; set; } = true;
+    /// <summary>Devices on the same local network may link without typing the code.</summary>
+    public bool LanNoCode { get; set; } = true;
+    /// <summary>Start in the notification area only; when false the window opens at startup.</summary>
+    public bool StartMinimized { get; set; } = true;
     public string SignalingUrl { get; set; } = "";
     public string StunUrls { get; set; } = "stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302";
     /// <summary>Overrides the build's TURN credentials endpoint (empty = use dualscreen.repo.json).</summary>

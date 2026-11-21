@@ -64,7 +64,8 @@ public partial class App : Application
         else if (Array.IndexOf(Args, "--post-update") >= 0)
             _tray.ShowNotification("DualScreen actualizado", $"Ahora usas la versión {AppInfo.VersionString}.");
 
-        // Starts silently in the tray. The window is only opened on demand.
+        // Starts in the tray ("Iniciar minimizado", default) or with the window open.
+        if (!SettingsStore.Current.StartMinimized) ShowMainWindow();
         Log.Info($"DualScreen {AppInfo.VersionString} started (data: {AppPaths.DataDir})");
     }
 

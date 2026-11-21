@@ -50,13 +50,20 @@ public sealed class ReceiverController : IDisposable
 
     /// <summary>First time: links with the code shown on the other PC, saves it and starts showing it.</summary>
     public Task<bool> PairAndStartAsync(SeenHost host, string code, bool noKeyboard, IntPtr monitor) =>
-        RunAsync(host.HostId, host.Name, code, noKeyboard, monitor);
+        RunAsync(host.HostId, host.Name, code, false, noKeyboard, monitor);
 
     /// <summary>One click: reconnects to a saved PC.</summary>
     public Task<bool> StartAsync(SavedHost host, IntPtr monitor) =>
-        RunAsync(host.HostId, host.Name, null, host.NoKeyboard, monitor);
+        RunAsync(host.HostId, host.Name, null, false, host.NoKeyboard, monitor);
 
-    private async Task<bool> RunAsync(string hostId, string name, string? code, bool noKeyboard, IntPtr monitor)
+    /// <summary>One click on a PC found on the local network: no code (if that PC allows it), saved afterwards.</summary>
+    public Task<bool> ConnectAsync(SeenHost host, bool noKeyboard, IntPtr monitor)
+    {
+        var saved = ReceiverStore.Find(host.HostId);
+        return saved != null ? StartAsync(saved, monitor) : RunAsync(host.HostId, host.Name, null, true, noKeyboard, monitor);
+    }
+
+    private async Task<bool> RunAsync(string hostId, string name, string? code, bool lan, bool noKeyboard, IntPtr monitor)
     {
         CancellationToken ct;
         lock (_gate)
@@ -72,8 +79,9 @@ public sealed class ReceiverController : IDisposable
         {
             Beacons.Start();
             var saved = ReceiverStore.Find(hostId);
-            if (code == null && saved == null) throw new InvalidOperationException("Este equipo no está vinculado.");
-            var link = await ReceiverConnector.ConnectAsync(hostId, code == null ? saved!.Fingerprint : null, saved, Beacons,
+            if (code == null && !lan && saved == null) throw new InvalidOperationException("Este equipo no está vinculado.");
+            bool useToken = code == null && !lan;
+            var link = await ReceiverConnector.ConnectAsync(hostId, useToken ? saved!.Fingerprint : null, saved, Beacons,
                 msg => Set(ReceiverState.Connecting, msg), ct).ConfigureAwait(false);
             stream = link.Stream;
 
@@ -87,9 +95,9 @@ public sealed class ReceiverController : IDisposable
                 AppVersion = AppInfo.VersionString,
                 Caps = ReceiverCaps.Build(monitor),
                 Quality = "maximum",
-                Auth = code == null
-                    ? new AuthBlock { Mode = "token", Token = saved!.Token }
-                    : PairAuth(code, link.Fingerprint),
+                Auth = useToken ? new AuthBlock { Mode = "token", Token = saved!.Token }
+                    : code != null ? PairAuth(code, link.Fingerprint)
+                    : new AuthBlock { Mode = "lan" },
             };
             Set(ReceiverState.Connecting, "Autenticando…");
             var welcome = await ReceiverConnector.HandshakeAsync(link.Stream, hello, ct).ConfigureAwait(false);
