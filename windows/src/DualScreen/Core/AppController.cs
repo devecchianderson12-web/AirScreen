@@ -302,7 +302,9 @@ public sealed class AppController : IDisposable
                 if (!_driverHintShown)
                 {
                     _driverHintShown = true;
-                    Notify?.Invoke("Modo espejo", "Se usa el modo espejo. Para usar el teléfono como pantalla extendida, instala el controlador en Configuración.");
+                    Notify?.Invoke("Modo espejo", DriverClient.AccessDenied
+                        ? "Se usa el modo espejo: el controlador necesita una reparación. Abrí Configuración → Controlador → Reparar."
+                        : "Se usa el modo espejo. Para usar la pantalla extendida, instala el controlador en Configuración.");
                 }
             }
             EffectiveMode = displayMode;

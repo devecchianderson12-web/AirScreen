@@ -38,6 +38,8 @@ AddReg=DualScreen_HardwareDeviceSettings
 [DualScreen_HardwareDeviceSettings]
 HKR,, "UpperFilters", %REG_MULTI_SZ%, "IndirectKmd"
 HKR, "WUDF", "DeviceGroupId", %REG_SZ%, "DualScreenIddGroup"
+; DualScreen.exe runs as a normal user: let interactive users open the control interface (IOCTLs).
+HKR,,Security,,"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)"
 
 [DualScreen_Install.NT.Services]
 AddService=WUDFRd,0x000001fa,WUDFRD_ServiceInstall

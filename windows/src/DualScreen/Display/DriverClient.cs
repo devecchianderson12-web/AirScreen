@@ -40,11 +40,30 @@ public sealed class DriverClient : IDisposable
 
     private DriverClient(SafeFileHandle handle) => _handle = handle;
 
+    /// <summary>The driver is installed but this user may not open it (installed by 0.2.1 or older): needs "Reparar".</summary>
+    public static bool AccessDenied { get; private set; }
+
     public static DriverClient? TryOpen()
     {
         string? path = FindInterfacePath();
         if (path == null) return null;
-        var h = File.OpenHandle(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite);
+        SafeFileHandle h;
+        try
+        {
+            h = File.OpenHandle(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite);
+            AccessDenied = false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            AccessDenied = true;
+            Log.Warn("Driver interface access denied: the device needs to be repaired (permissions)");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("Driver interface unavailable: " + ex.Message);
+            return null;
+        }
         var c = new DriverClient(h);
         try
         {
@@ -60,7 +79,16 @@ public sealed class DriverClient : IDisposable
         return c;
     }
 
-    public static bool IsInstalled() => FindInterfacePath() != null;
+    /// <summary>Installed (device interface present). Also refreshes <see cref="AccessDenied"/>.</summary>
+    public static bool IsInstalled()
+    {
+        string? path = FindInterfacePath();
+        if (path == null) return false;
+        try { using var h = File.OpenHandle(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite); AccessDenied = false; }
+        catch (UnauthorizedAccessException) { AccessDenied = true; }
+        catch { }
+        return true;
+    }
 
     public unsafe uint GetVersion()
     {

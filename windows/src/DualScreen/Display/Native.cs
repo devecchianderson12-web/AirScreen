@@ -119,6 +119,7 @@ internal static class Native
     public const int DIGCF_DEVICEINTERFACE = 0x10;
     public const int DICD_GENERATE_ID = 0x1;
     public const int SPDRP_HARDWAREID = 0x1;
+    public const int SPDRP_SECURITY_SDS = 0x18;
     public const int DIF_REGISTERDEVICE = 0x19;
     public const uint INSTALLFLAG_FORCE = 0x1;
 

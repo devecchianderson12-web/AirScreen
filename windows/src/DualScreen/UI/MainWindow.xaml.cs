@@ -388,7 +388,7 @@ public partial class MainWindow : Window
             CodecHint.Text = caps == null ? "Se elige según el hardware de ambos dispositivos."
                 : "Disponibles en ambos: " + string.Join(", ", caps.Codecs.Select(c => c switch { "video/hevc" => "HEVC", "video/av01" => "AV1", _ => "H.264" }));
             bool driver = _app.DriverInstalled;
-            DriverWarning.Visibility = s.Mode == DisplayMode.Extended && !driver ? Visibility.Visible : Visibility.Collapsed;
+            DriverWarning.Visibility = s.Mode == DisplayMode.Extended && (!driver || DriverClient.AccessDenied) ? Visibility.Visible : Visibility.Collapsed;
         }
         finally { _loading = wasLoading; }
     }
@@ -502,13 +502,17 @@ public partial class MainWindow : Window
     private void RefreshSettingsStatus()
     {
         bool installed = _app.DriverInstalled;
-        DriverStatus.Text = installed ? "Controlador instalado y en funcionamiento" : "Controlador no instalado";
-        DriverDetail.Text = installed
+        bool repair = installed && DriverClient.AccessDenied;
+        DriverStatus.Text = repair ? "El controlador necesita una reparación" : installed ? "Controlador instalado y en funcionamiento" : "Controlador no instalado";
+        DriverDetail.Text = repair
+            ? "Está instalado pero DualScreen no tiene permiso para usarlo. «Reparar» lo corrige (un aviso de administrador)."
+            : installed
             ? "Windows puede crear el monitor virtual DualScreen (Configuración → Sistema → Pantalla)."
             : DriverInstaller.HasEmbeddedPackage
                 ? "Necesario para el modo extendido. Se pedirá permiso de administrador una sola vez y se instalará también el certificado del controlador DualScreen."
                 : "Esta compilación no incluye el paquete del controlador (consulta docs/DRIVER.md).";
-        DriverInstallButton.Visibility = installed ? Visibility.Collapsed : Visibility.Visible;
+        DriverInstallButton.Visibility = installed && !repair ? Visibility.Collapsed : Visibility.Visible;
+        DriverInstallButton.Content = repair ? "Reparar" : "Instalar";
         DriverUninstallButton.Visibility = installed ? Visibility.Visible : Visibility.Collapsed;
         DataPath.Text = AppPaths.DataDir;
         AboutText.Text = $"DualScreen {AppInfo.VersionString} · Protocolo v{AppInfo.ProtocolVersion} · ID del PC {_app.Identity.HostId}";

@@ -131,7 +131,15 @@ public static class DriverInstaller
             finally { Native.SetupDiDestroyDeviceInfoList(set); }
         }
 
-        // 3) Bind the driver to the device node.
+        // 2b) Normal users must be able to open the control interface (also repairs nodes created by 0.2.1 or older).
+        ForEachDevice((set, dev) =>
+        {
+            byte[] sddl = Encoding.Unicode.GetBytes(DeviceSddl + "\0");
+            if (!Native.SetupDiSetDeviceRegistryProperty(set, ref dev, Native.SPDRP_SECURITY_SDS, sddl, sddl.Length))
+                Log.Warn($"Setting device security failed ({Marshal.GetLastWin32Error()})");
+        });
+
+        // 3) Bind the driver to the device node (this also restarts it, applying the new security).
         if (!Native.UpdateDriverForPlugAndPlayDevices(IntPtr.Zero, DriverClient.HardwareId, inf, Native.INSTALLFLAG_FORCE, out bool reboot))
         {
             int err = Marshal.GetLastWin32Error();
@@ -142,6 +150,7 @@ public static class DriverInstaller
     }
 
     private const string CertSubject = "CN=DualScreen Test Driver";
+    private const string DeviceSddl = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)";
 
     private static void TrustPackageCertificate(string dir)
     {
