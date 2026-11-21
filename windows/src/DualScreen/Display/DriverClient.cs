@@ -119,7 +119,8 @@ public sealed class DriverClient : IDisposable
             string stage = res.Stage switch
             {
                 1 => "petición inválida", 2 => "conector ocupado", 3 => "IddCxMonitorCreate", 4 => "IddCxMonitorArrival",
-                5 => "adaptador no listo", _ => "etapa " + res.Stage,
+                5 => "adaptador no listo", 13 => "IddCxMonitorCreate (sin EDID)", 14 => "IddCxMonitorArrival (sin EDID)",
+                _ => "etapa " + res.Stage,
             };
             string modeList = string.Join(", ", modes.Take((int)req.ModeCount).Select(m => $"{m.W}x{m.H}@{m.Hz}"));
             Log.Warn($"AddMonitor failed: {stage} 0x{res.Status:X8}, parse calls {res.ParseCalls} (last 0x{res.ParseStatus:X8}), query calls {res.QueryCalls}, modes {modeList}");

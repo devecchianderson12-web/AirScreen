@@ -133,6 +133,9 @@ public sealed class DisplayManager : IDisposable
             {
                 if (monitor.DeviceID != null && monitor.DeviceID.Contains(@"\DSC", StringComparison.OrdinalIgnoreCase))
                     return adapter.DeviceName;
+                // EDID-less fallback monitor: recognised through its adapter (the DualScreen virtual display).
+                if (adapter.DeviceString != null && adapter.DeviceString.Contains("DualScreen", StringComparison.OrdinalIgnoreCase))
+                    return adapter.DeviceName;
             }
         }
         return null;

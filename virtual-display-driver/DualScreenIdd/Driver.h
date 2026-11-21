@@ -13,6 +13,7 @@
 #include <wrl.h>
 #include <initguid.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <memory>

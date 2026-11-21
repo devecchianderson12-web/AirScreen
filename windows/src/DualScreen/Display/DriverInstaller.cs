@@ -209,6 +209,13 @@ public static class DriverInstaller
         foreach (string published in PublishedDualScreenPackages())
             if (!current.Success || !published.Equals(current.Value, StringComparison.OrdinalIgnoreCase))
                 RunTool("pnputil.exe", $"/delete-driver {published}");
+        // Restart the device so the new driver binary is loaded now instead of after a reboot.
+        if (reboot)
+        {
+            var (rc, rout) = RunTool("pnputil.exe", $"/restart-device /deviceid \"{DriverClient.HardwareId}\"");
+            Log.Info($"pnputil restart-device ({rc}): {rout.Trim()}");
+            if (rc == 0) reboot = false;
+        }
         Log.Info("Driver installed" + (reboot ? " (reboot required)" : ""));
         return reboot ? "Controlador instalado. Reinicia Windows para completar." : "Controlador instalado correctamente.";
     }

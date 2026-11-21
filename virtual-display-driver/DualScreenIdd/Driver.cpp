@@ -39,9 +39,39 @@ static std::atomic<INT32> g_parseStatus{ 0 };
 
 // ---------------------------------------------------------------------------------------------- EDID
 
-// Minimal EDID 1.4 block: manufacturer "DSC", product 0x0001, serial = connector + 1, monitor name
-// "DualScreen". No detailed timings: the modes come from EvtIddCxParseMonitorDescription.
-static std::array<BYTE, 128> BuildEdid(UINT32 connector)
+// EDID 1.4 block: manufacturer "DSC", product 0x0001, serial = connector + 1, monitor name "DualScreen".
+// A valid EDID needs a detailed timing descriptor (DTD) for the preferred mode in the first descriptor slot,
+// a range-limits descriptor that covers every mode reported, and a correct checksum; Windows rejects the
+// monitor otherwise. Timings use CVT reduced blanking.
+static void WriteDtd(BYTE* d, const Mode& m)
+{
+    UINT32 hA = m.Width, vA = m.Height, hz = m.RefreshHz;
+    const UINT32 hB = 160, hFront = 48, hSync = 32;
+    const UINT32 vFront = 3, vSync = 5;
+    // Minimum vertical blank of 460 us (CVT-RB).
+    double lineTimeSec = (1.0 / hz) / (vA + 20.0);
+    UINT32 vB = (UINT32)(0.00046 / lineTimeSec) + 1;
+    if (vB < vFront + vSync + 6) vB = vFront + vSync + 6;
+    UINT64 clock10k = ((UINT64)(hA + hB) * (vA + vB) * hz + 5000) / 10000;
+    if (clock10k > 0xFFFF) clock10k = 0xFFFF;
+    d[0] = (BYTE)(clock10k & 0xFF);
+    d[1] = (BYTE)(clock10k >> 8);
+    d[2] = (BYTE)(hA & 0xFF);
+    d[3] = (BYTE)(hB & 0xFF);
+    d[4] = (BYTE)(((hA >> 8) & 0xF) << 4 | ((hB >> 8) & 0xF));
+    d[5] = (BYTE)(vA & 0xFF);
+    d[6] = (BYTE)(vB & 0xFF);
+    d[7] = (BYTE)(((vA >> 8) & 0xF) << 4 | ((vB >> 8) & 0xF));
+    d[8] = (BYTE)(hFront & 0xFF);
+    d[9] = (BYTE)(hSync & 0xFF);
+    d[10] = (BYTE)((vFront & 0xF) << 4 | (vSync & 0xF));
+    d[11] = (BYTE)(((hFront >> 8) & 3) << 6 | ((hSync >> 8) & 3) << 4 | ((vFront >> 4) & 3) << 2 | ((vSync >> 4) & 3));
+    d[12] = 0x60; d[13] = 0x36; d[14] = 0x21; // 608 x 342 mm (~27")
+    d[15] = 0; d[16] = 0;
+    d[17] = 0x1A; // digital separate sync, +H -V
+}
+
+static std::array<BYTE, 128> BuildEdid(UINT32 connector, const std::vector<Mode>& modes, UINT32 preferred)
 {
     std::array<BYTE, 128> e{};
     const BYTE header[8] = { 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00 };
@@ -55,27 +85,51 @@ static std::array<BYTE, 128> BuildEdid(UINT32 connector)
     e[16] = 1; e[17] = 35;                              // week 1, 2025
     e[18] = 1; e[19] = 4;                               // EDID 1.4
     e[20] = 0xA5;                                       // digital, 8 bpc, DisplayPort
-    e[21] = 16; e[22] = 9;                              // aspect-ratio style size
+    e[21] = 61; e[22] = 34;                             // 61 x 34 cm
     e[23] = 0x78;                                       // gamma 2.2
-    e[24] = 0x06;                                       // RGB 4:4:4, sRGB default
-    // chromaticity (sRGB)
+    e[24] = 0x06;                                       // RGB 4:4:4, sRGB default, preferred timing = native
     const BYTE chroma[10] = { 0xEE, 0x91, 0xA3, 0x54, 0x4C, 0x99, 0x26, 0x0F, 0x50, 0x54 };
     memcpy(&e[25], chroma, 10);
     for (int i = 38; i < 54; i += 2) { e[i] = 0x01; e[i + 1] = 0x01; } // no standard timings
-    // Descriptor 1: monitor name
-    BYTE* d = &e[54];
+
+    Mode pref = modes.empty() ? Mode{ 1920, 1080, 60 } : modes[preferred < modes.size() ? preferred : 0];
+    // The DTD pixel clock field tops out at 655.35 MHz: describe very fast modes at 60 Hz there.
+    if ((UINT64)(pref.Width + 160) * (pref.Height + 60) * pref.RefreshHz > 655350000ull) pref.RefreshHz = 60;
+    WriteDtd(&e[54], pref);
+
+    // Range limits: cover every reported refresh rate and pixel clock.
+    UINT32 minV = 255, maxV = 0; UINT64 maxClock = 0; UINT32 maxH = 0;
+    for (const auto& m : modes)
+    {
+        minV = std::min<UINT32>(minV, m.RefreshHz); maxV = std::max<UINT32>(maxV, m.RefreshHz);
+        UINT64 c = (UINT64)(m.Width + 160) * (m.Height + 60) * m.RefreshHz;
+        if (c > maxClock) maxClock = c;
+        UINT32 hk = (UINT32)((UINT64)(m.Height + 60) * m.RefreshHz / 1000) + 1;
+        if (hk > maxH) maxH = hk;
+    }
+    if (modes.empty()) { minV = 60; maxV = 60; maxClock = 150000000; maxH = 70; }
+    BYTE* d = &e[72];
+    d[3] = 0xFD;
+    d[5] = (BYTE)std::max<UINT32>(1u, std::min<UINT32>(minV > 1 ? minV - 1 : 1u, 255u));
+    d[6] = (BYTE)std::min<UINT32>(maxV + 1, 255u);
+    d[7] = 1;
+    d[8] = (BYTE)std::min<UINT32>(maxH + 1, 255u);
+    d[9] = (BYTE)std::min<UINT32>((UINT32)(maxClock / 10000000ull) + 1, 255u);
+    d[10] = 0x01; // range limits only
+    d[11] = 0x0A;
+    for (int i = 12; i < 18; i++) d[i] = 0x20;
+
+    d = &e[90];
     d[3] = 0xFC;
     const char name[13] = { 'D','u','a','l','S','c','r','e','e','n','\n',' ',' ' };
     memcpy(&d[5], name, 13);
-    // Descriptor 2: serial string
-    d = &e[72];
+
+    d = &e[108];
     d[3] = 0xFF;
     char sn[13] = { 'D','S','-','0','0','0','0','\n',' ',' ',' ',' ',' ' };
     sn[6] = (char)('0' + (connector % 10));
     memcpy(&d[5], sn, 13);
-    // Descriptors 3 and 4: dummy
-    e[90 + 3] = 0x10;
-    e[108 + 3] = 0x10;
+
     e[126] = 0; // no extensions
     BYTE sum = 0;
     for (int i = 0; i < 127; i++) sum += e[i];
@@ -276,7 +330,7 @@ NTSTATUS AdapterContext::AddMonitor(const DS_ADD_MONITOR& req)
         slot.Monitor = nullptr;
         slot.Modes = modes;
         slot.Preferred = req.PreferredMode < modes.size() ? req.PreferredMode : 0;
-        slot.Edid = BuildEdid(req.ConnectorIndex);
+        slot.Edid = BuildEdid(req.ConnectorIndex, modes, slot.Preferred);
         g_lastModes = modes;
     }
     auto release = [&]()
@@ -290,43 +344,55 @@ NTSTATUS AdapterContext::AddMonitor(const DS_ADD_MONITOR& req)
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attr, MonitorContextWrapper);
     attr.EvtCleanupCallback = DsMonitorCleanup;
 
-    IDDCX_MONITOR_INFO info = {};
-    info.Size = sizeof(info);
-    info.MonitorType = DISPLAYCONFIG_OUTPUT_TECHNOLOGY_DISPLAYPORT_EXTERNAL;
-    info.ConnectorIndex = req.ConnectorIndex;
-    info.MonitorDescription.Size = sizeof(info.MonitorDescription);
-    info.MonitorDescription.Type = IDDCX_MONITOR_DESCRIPTION_TYPE_EDID;
-    info.MonitorDescription.DataSize = (UINT)slot.Edid.size();
-    info.MonitorDescription.pData = slot.Edid.data();
-    // Stable container id per connector so Windows remembers position/scale of the phone display.
-    info.MonitorContainerId = { 0x44530000u | req.ConnectorIndex, 0x5343, 0x4E52, { 0x8A, 0x1E, 0x44, 0x75, 0x61, 0x6C, 0x53, 0x63 } };
-
-    IDARG_IN_MONITORCREATE in = {};
-    in.ObjectAttributes = &attr;
-    in.pMonitorInfo = &info;
-    IDARG_OUT_MONITORCREATE out = {};
-    g_stage = 3;
-    NTSTATUS status = IddCxMonitorCreate(Adapter, &in, &out);
-    if (!NT_SUCCESS(status)) { release(); return status; }
-
-    auto* ctx = new MonitorContext{ out.MonitorObject, nullptr };
-    WdfObjectGet_MonitorContextWrapper(out.MonitorObject)->pContext = ctx;
+    // First with our EDID; if Windows refuses it, again without EDID (modes then come from
+    // EvtIddCxMonitorGetDefaultDescriptionModes). Stage + 10 in DS_ADD_RESULT marks the EDID-less attempt.
+    NTSTATUS status = STATUS_UNSUCCESSFUL;
+    for (int attempt = 0; attempt < 2; attempt++)
     {
-        std::lock_guard<std::mutex> lock(m_lock);
-        slot.Monitor = out.MonitorObject; // QueryTargetModes during arrival can now find this monitor's modes
-    }
+        const bool withEdid = attempt == 0;
+        const UINT32 stageBase = withEdid ? 0 : 10;
+        IDDCX_MONITOR_INFO info = {};
+        info.Size = sizeof(info);
+        info.MonitorType = DISPLAYCONFIG_OUTPUT_TECHNOLOGY_HDMI;
+        info.ConnectorIndex = req.ConnectorIndex;
+        info.MonitorDescription.Size = sizeof(info.MonitorDescription);
+        info.MonitorDescription.Type = IDDCX_MONITOR_DESCRIPTION_TYPE_EDID;
+        info.MonitorDescription.DataSize = withEdid ? (UINT)slot.Edid.size() : 0;
+        info.MonitorDescription.pData = withEdid ? slot.Edid.data() : nullptr;
+        // Stable container id per connector so Windows remembers position/scale of the display.
+        info.MonitorContainerId = { 0x44530000u | req.ConnectorIndex, 0x5343, 0x4E52, { 0x8A, 0x1E, 0x44, 0x75, 0x61, 0x6C, 0x53, 0x63 } };
 
-    IDARG_OUT_MONITORARRIVAL arrival = {};
-    g_stage = 4;
-    status = IddCxMonitorArrival(out.MonitorObject, &arrival);
-    if (!NT_SUCCESS(status))
-    {
-        release();
+        IDARG_IN_MONITORCREATE in = {};
+        in.ObjectAttributes = &attr;
+        in.pMonitorInfo = &info;
+        IDARG_OUT_MONITORCREATE out = {};
+        g_stage = stageBase + 3;
+        status = IddCxMonitorCreate(Adapter, &in, &out);
+        if (!NT_SUCCESS(status)) continue;
+
+        auto* ctx = new MonitorContext{ out.MonitorObject, nullptr };
+        WdfObjectGet_MonitorContextWrapper(out.MonitorObject)->pContext = ctx;
+        {
+            std::lock_guard<std::mutex> lock(m_lock);
+            slot.Monitor = out.MonitorObject; // QueryTargetModes during arrival can now find this monitor's modes
+        }
+
+        IDARG_OUT_MONITORARRIVAL arrival = {};
+        g_stage = stageBase + 4;
+        status = IddCxMonitorArrival(out.MonitorObject, &arrival);
+        if (NT_SUCCESS(status))
+        {
+            g_stage = 0;
+            return STATUS_SUCCESS;
+        }
+        {
+            std::lock_guard<std::mutex> lock(m_lock);
+            slot.Monitor = nullptr;
+        }
         WdfObjectDelete(out.MonitorObject);
-        return status;
     }
-    g_stage = 0;
-    return STATUS_SUCCESS;
+    release();
+    return status;
 }
 
 NTSTATUS AdapterContext::RemoveMonitor(UINT32 connector)

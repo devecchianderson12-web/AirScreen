@@ -2,6 +2,12 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones [SemVer](https://semver.org/lang/es/).
 
+## [0.2.9] - 2026-11-21
+
+### Corregido
+- Pantalla extendida (sigue «IddCxMonitorArrival devolvió 0xC000000D»): el EDID del monitor virtual no tenía la temporización detallada del modo preferido ni los límites de frecuencia, que Windows exige. Ahora es un EDID 1.4 completo (temporización CVT con borrado reducido y límites que cubren todos los modos). Si aun así Windows lo rechazara, el controlador crea el monitor sin EDID.
+- Al actualizar el controlador se reinicia el dispositivo para cargar la versión nueva sin reiniciar Windows.
+
 ## [0.2.8] - 2026-11-21
 
 ### Corregido
