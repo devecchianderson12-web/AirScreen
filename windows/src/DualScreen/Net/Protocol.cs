@@ -24,6 +24,60 @@ public enum MsgType : byte
     ClientSettings = 0x09, // client -> host, JSON ClientSettingsMsg
     Bye = 0x0A,            // either way, JSON ByeMsg
     Input = 0x0B,          // client -> host, binary input event (see InputCodec)
+    Cursor = 0x0C,         // host -> client, binary cursor shape / position (clients with feature "cursor")
+    Audio = 0x0D,          // host -> client, binary: rate(4) channels(1) ptsUs(8) PCM s16le
+    HostState = 0x0E,      // host -> client, JSON HostStateMsg (clients with feature "hostSettings")
+    HostSettings = 0x0F,   // client -> host, JSON HostSettingsMsg (partial)
+}
+
+/// <summary>Monotonic microseconds on the QPC timebase shared by capture timestamps, pings and video pts.</summary>
+public static class HostClock
+{
+    public static long NowUs() => (long)(System.Diagnostics.Stopwatch.GetTimestamp() * (1_000_000.0 / System.Diagnostics.Stopwatch.Frequency));
+}
+
+public sealed class MonitorInfoMsg
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public int Width { get; set; }
+    public int Height { get; set; }
+    public bool Primary { get; set; }
+}
+
+/// <summary>What the host is doing and what can be changed from the receiver.</summary>
+public sealed class HostStateMsg
+{
+    public string Mode { get; set; } = "extended";          // setting: extended | mirror
+    public string EffectiveMode { get; set; } = "extended"; // what is streaming now
+    public bool DriverOk { get; set; }
+    public string MirrorMonitor { get; set; } = "";
+    public List<MonitorInfoMsg> Monitors { get; set; } = new();
+    public string Resolution { get; set; } = "auto";
+    public List<string> Resolutions { get; set; } = new();
+    public int RefreshRate { get; set; }
+    public List<int> Rates { get; set; } = new();
+    public string Quality { get; set; } = "auto";            // auto maximum high balanced saver
+    public string Performance { get; set; } = "lowLatency";  // lowLatency balanced quality
+    public string Codec { get; set; } = "auto";               // auto h264 hevc av1
+    public List<string> Codecs { get; set; } = new();
+    public int MaxBitrateMbps { get; set; }
+    public bool Audio { get; set; }
+    public string HostName { get; set; } = "";
+}
+
+/// <summary>Partial update sent by a receiver; null fields are left unchanged. Applied to the PC's own settings.</summary>
+public sealed class HostSettingsMsg
+{
+    public string? Mode { get; set; }
+    public string? MirrorMonitor { get; set; }
+    public string? Resolution { get; set; }
+    public int? RefreshRate { get; set; }
+    public string? Quality { get; set; }
+    public string? Performance { get; set; }
+    public string? Codec { get; set; }
+    public int? MaxBitrateMbps { get; set; }
+    public bool? Audio { get; set; }
 }
 
 [Flags]
@@ -60,6 +114,10 @@ public sealed class DeviceCaps
     public string? Platform { get; set; }
     /// <summary>Input devices the client forwards: "touch", "pen", "mouse", "keyboard". Null = none.</summary>
     public List<string>? Input { get; set; }
+    /// <summary>Optional protocol features: "cursor" (local cursor), "audio", "hostSettings", "latency".</summary>
+    public List<string>? Features { get; set; }
+
+    public bool Has(string feature) => Features != null && Features.Contains(feature);
 }
 
 public sealed class AuthBlock
@@ -112,6 +170,8 @@ public sealed class ClientStatsMsg
     public float DecodeMs { get; set; }
     public float RecvKbps { get; set; }
     public int Dropped { get; set; }
+    /// <summary>Measured capture-to-display latency in ms (clock offset from PING/PONG), 0 if unknown.</summary>
+    public float LatencyMs { get; set; }
 }
 
 public sealed class ClientSettingsMsg

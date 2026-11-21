@@ -42,6 +42,10 @@ public sealed class StreamPipeline : IDisposable
 
     public PipelineStats Stats { get; } = new();
     public event Action<Exception>? Failed;
+    /// <summary>The captured monitor changed size (resolution or rotation changed in Windows Settings).</summary>
+    public event Action<int, int>? SourceResized;
+    public bool CaptureCursor { get; init; } = true;
+    private CursorTracker? _cursor;
 
     public StreamPipeline(D3DDevice d3d, DisplayTarget target, ClientSession session, BitrateController abr, string mime, int outW, int outH)
     {
@@ -57,8 +61,9 @@ public sealed class StreamPipeline : IDisposable
 
     public void Start()
     {
-        _capture = new WgcCapture(_d3d, _target.Monitor);
-        _capture.SizeChanged += (_, _) => _captureResized = true;
+        _capture = new WgcCapture(_d3d, _target.Monitor, CaptureCursor);
+        _capture.SizeChanged += (w, h) => { _captureResized = true; SourceResized?.Invoke(w, h); };
+        if (!CaptureCursor) _cursor = new CursorTracker(_session, _target.Monitor, _outW, _outH);
         _converter = new FrameConverter(_d3d, _capture.Width, _capture.Height, _outW, _outH, _abr.TargetFps);
         _encoder = CreateEncoder();
         Stats.Encoder = _encoder.Name + (_encoder.IsHardware ? " (HW)" : " (SW)");
@@ -81,7 +86,19 @@ public sealed class StreamPipeline : IDisposable
 
     private void Run()
     {
+        IntPtr mmcss = Perf.EnterRealtime();
+        try { RunCore(); }
+        finally { Perf.LeaveRealtime(mmcss); }
+    }
+
+    private void RunCore()
+    {
         var clock = Stopwatch.StartNew();
+        // Static-content refinement: after the screen stops changing, the last image is re-encoded a few times.
+        // Each pass spends the (now idle) bandwidth on detail, so text becomes sharp without adding latency.
+        const int RefinePasses = 4;
+        int refineLeft = 0;
+        double lastNewFrameMs = 0;
         var outFrames = new List<EncodedFrame>(4);
         var submitTimes = new Dictionary<long, double>();
         long lastCaptured = -1;
@@ -124,8 +141,11 @@ public sealed class StreamPipeline : IDisposable
                 bool haveNew = counter != lastCaptured;
                 bool linkReady = _session.QueuedVideoFrames < 2;
                 bool due = now >= nextDueMs;
+                if (haveNew) { lastNewFrameMs = now; refineLeft = RefinePasses; }
+                bool refine = !haveNew && refineLeft > 0 && lastCaptured >= 0 && now - lastNewFrameMs >= 120
+                              && _session.QueuedVideoFrames == 0;
                 // A keyframe request re-encodes the last image even if the screen is static.
-                bool wantFrame = (haveNew || (_keyframeRequested && lastCaptured >= 0)) && due && linkReady;
+                bool wantFrame = (haveNew || refine || (_keyframeRequested && lastCaptured >= 0)) && due && linkReady;
 
                 if (wantFrame && _encoder.CanAcceptInput)
                 {
@@ -134,7 +154,11 @@ public sealed class StreamPipeline : IDisposable
                         _encoder.ForceKeyframe();
                         _keyframeRequested = false;
                     }
-                    long pts = (long)(now * 1000);
+                    if (!haveNew && refine) refineLeft--;
+                    // pts = capture time (QPC µs): receivers measure true capture-to-display latency with it.
+                    long pts = Interlocked.Read(ref _capture.LatestTimeUs);
+                    if (pts <= 0 || haveNew == false) pts = Net.HostClock.NowUs();
+                    while (submitTimes.ContainsKey(pts)) pts++;
                     lock (_capture.TextureLock)
                     {
                         if (_capture.Latest != null)
@@ -170,7 +194,8 @@ public sealed class StreamPipeline : IDisposable
                 }
 
                 // Sleep until something can happen: a new captured frame, the pacing deadline, or encoder output.
-                int wait = submitTimes.Count > 0 ? 1 : (int)Math.Clamp(nextDueMs - now, 1, 50);
+                _cursor?.Poll();
+                int wait = submitTimes.Count > 0 ? 1 : (int)Math.Clamp(nextDueMs - now, 1, _cursor != null ? 8 : refineLeft > 0 ? 20 : 50);
                 if (!haveNew || !due) _capture.FrameEvent.WaitOne(wait);
                 else Thread.Sleep(1); // frame pending but link/encoder busy
             }
@@ -193,6 +218,7 @@ public sealed class StreamPipeline : IDisposable
         _encoder?.Dispose();
         _converter?.Dispose();
         _capture?.Dispose();
+        _cursor?.Dispose();
         _cts.Dispose();
     }
 }

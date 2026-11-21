@@ -43,6 +43,10 @@ public sealed class AppSettings
     public bool LanNoCode { get; set; } = true;
     /// <summary>Start in the notification area only; when false the window opens at startup.</summary>
     public bool StartMinimized { get; set; } = true;
+    /// <summary>Mirror mode source monitor (\\.\DISPLAYn); empty = primary.</summary>
+    public string MirrorMonitor { get; set; } = "";
+    /// <summary>When this PC is used as a monitor: play the other PC's sound here.</summary>
+    public bool ReceiverAudio { get; set; } = false;
     public string SignalingUrl { get; set; } = "";
     public string StunUrls { get; set; } = "stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302";
     /// <summary>Overrides the build's TURN credentials endpoint (empty = use dualscreen.repo.json).</summary>

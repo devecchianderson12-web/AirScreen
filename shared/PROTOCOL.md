@@ -50,6 +50,15 @@ Longitud máxima: 16 MiB.
 | 0x09 | CLIENT_SETTINGS | teléfono → PC | JSON `{quality}` (`auto,maximum,high,balanced,saver`) |
 | 0x0A | BYE | ambas | JSON `{reason}` |
 | 0x0B | INPUT | receptor → PC | evento binario de entrada (ver abajo) |
+| 0x0C | CURSOR | PC → receptor | forma `[1][hotX u16][hotY u16][w u16][h u16][BGRA]` o posición `[2][visible u8][x u16][y u16]` (solo con `features: cursor`; el vídeo va sin cursor) |
+| 0x0D | AUDIO | PC → receptor | `[frecuencia u32][canales u8][ptsUs i64][PCM s16le]` (si el receptor pidió `audio`) |
+| 0x0E | HOST_STATE | PC → receptor | JSON con los ajustes actuales y opciones (modo, monitores, resoluciones, Hz, calidad, prioridad, códecs, audio) |
+| 0x0F | HOST_SETTINGS | receptor → PC | JSON parcial con los mismos campos; la PC lo aplica a sus ajustes y reinicia la transmisión si hace falta |
+
+`caps.features` (opcional): `cursor`, `audio`, `hostSettings`, `latency`.
+PONG lleva, después del eco de 8 bytes, la hora de la PC (µs, `int64`): con el RTT más bajo el receptor estima el
+desfase de relojes y calcula la latencia real `hora local + desfase − pts` (el `pts` de VIDEO es la hora de captura).
+`STATS` incluye `latencyMs`.
 
 ### INPUT (receptores con pantalla táctil, lápiz, mouse o teclado)
 

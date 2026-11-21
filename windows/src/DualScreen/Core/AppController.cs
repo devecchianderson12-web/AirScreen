@@ -31,6 +31,8 @@ public sealed class AppController : IDisposable
     private CancellationTokenSource? _releaseDelay;
     private bool _driverHintShown;
     private readonly InputInjector _injector = new();
+    private AudioCapture? _audio;
+    private bool _perfActive;
 
     public HostIdentity Identity { get; }
     public PairingService Pairing { get; }
@@ -226,7 +228,124 @@ public sealed class AppController : IDisposable
             case MsgType.Input:
                 if (SettingsStore.Current.AllowRemoteInput) _injector.Handle(f.Payload);
                 break;
+            case MsgType.HostSettings:
+                var hs = f.Json<HostSettingsMsg>();
+                if (hs != null) ApplyHostSettings(session, hs);
+                break;
         }
+    }
+
+    // ------------------------------------------------------------------ settings from the receiver
+
+    /// <summary>
+    /// Settings changed on the receiver (phone or PC) are applied to this PC's own settings — the same ones shown in
+    /// the Windows window — and the stream restarts only if something that affects it changed.
+    /// </summary>
+    private void ApplyHostSettings(ClientSession session, HostSettingsMsg m)
+    {
+        bool restart = false, replug = false;
+        if (m.Audio is bool a && a != session.AudioEnabled)
+        {
+            session.AudioEnabled = a;
+            UpdateAudio(session);
+        }
+        SettingsStore.Update(s =>
+        {
+            if (m.Mode is "extended" or "mirror")
+            {
+                var mode = m.Mode == "mirror" ? DisplayMode.Mirror : DisplayMode.Extended;
+                if (mode != s.Mode) { s.Mode = mode; restart = replug = true; }
+            }
+            if (m.MirrorMonitor != null && m.MirrorMonitor != s.MirrorMonitor) { s.MirrorMonitor = m.MirrorMonitor; restart |= s.Mode == DisplayMode.Mirror; }
+            if (m.Resolution != null && m.Resolution != s.Resolution && (m.Resolution == "auto" || Negotiator.TryParse(m.Resolution, out _)))
+            { s.Resolution = m.Resolution; restart = replug = true; }
+            if (m.RefreshRate is int hz && hz >= 0 && hz != s.RefreshRate) { s.RefreshRate = hz; restart = replug = true; }
+            if (m.Quality != null)
+            {
+                var q = m.Quality switch
+                {
+                    "maximum" => QualityPreset.Maximum, "high" => QualityPreset.High, "balanced" => QualityPreset.Balanced,
+                    "saver" => QualityPreset.Saver, _ => QualityPreset.Auto,
+                };
+                if (q != s.Quality) { s.Quality = q; restart = true; }
+            }
+            if (m.Performance != null)
+            {
+                var p = m.Performance switch { "balanced" => PerformancePreset.Balanced, "quality" => PerformancePreset.Quality, _ => PerformancePreset.LowLatency };
+                if (p != s.Performance) { s.Performance = p; restart = true; }
+            }
+            if (m.Codec != null)
+            {
+                var c = m.Codec switch { "h264" => CodecPreference.H264, "hevc" => CodecPreference.Hevc, "av1" => CodecPreference.Av1, _ => CodecPreference.Auto };
+                if (c != s.Codec) { s.Codec = c; restart = true; }
+            }
+            if (m.MaxBitrateMbps is int mb && mb >= 0 && mb <= 300 && mb != s.MaxBitrateMbps) { s.MaxBitrateMbps = mb; restart = true; }
+        });
+        if (restart) _ = RestartStreamingAsync(replug);
+        else SendHostState(session);
+    }
+
+    private void SendHostState(ClientSession session)
+    {
+        if (!session.Hello.Caps.Has("hostSettings") || session.IsClosed) return;
+        var s = SettingsStore.Current;
+        var caps = Caps;
+        string key = Negotiator.TryParse(s.Resolution, out var rr) && caps != null && caps.FpsByResolution.ContainsKey(rr) ? s.Resolution : "";
+        var resKey = key != "" ? rr : caps?.Resolutions.FirstOrDefault() ?? default;
+        var msg = new HostStateMsg
+        {
+            Mode = s.Mode == DisplayMode.Mirror ? "mirror" : "extended",
+            EffectiveMode = EffectiveMode == DisplayMode.Mirror ? "mirror" : "extended",
+            DriverOk = DriverInstaller.GetStatus() == DriverStatus.Ok,
+            MirrorMonitor = s.MirrorMonitor,
+            Monitors = DisplayManager.ListMonitors(),
+            Resolution = s.Resolution,
+            Resolutions = caps?.Resolutions.Select(r => $"{r.W}x{r.H}").ToList() ?? new(),
+            RefreshRate = s.RefreshRate,
+            Rates = caps != null && caps.FpsByResolution.TryGetValue(resKey, out var rates) ? rates.ToList() : new List<int> { 60 },
+            Quality = s.Quality switch
+            {
+                QualityPreset.Maximum => "maximum", QualityPreset.High => "high", QualityPreset.Balanced => "balanced",
+                QualityPreset.Saver => "saver", _ => "auto",
+            },
+            Performance = s.Performance switch { PerformancePreset.Balanced => "balanced", PerformancePreset.Quality => "quality", _ => "lowLatency" },
+            Codec = s.Codec switch { CodecPreference.H264 => "h264", CodecPreference.Hevc => "hevc", CodecPreference.Av1 => "av1", _ => "auto" },
+            Codecs = caps?.Codecs.Select(c => c switch { "video/hevc" => "hevc", "video/av01" => "av1", _ => "h264" }).ToList() ?? new(),
+            MaxBitrateMbps = s.MaxBitrateMbps,
+            Audio = session.AudioEnabled,
+            HostName = s.HostName,
+        };
+        session.SendJson(MsgType.HostState, msg);
+    }
+
+    /// <summary>Starts/stops sound capture according to the session's choice.</summary>
+    private void UpdateAudio(ClientSession session)
+    {
+        bool want = session.AudioEnabled && !session.IsClosed && session.Hello.Caps.Has("audio");
+        if (want)
+        {
+            _audio ??= new AudioCapture(frame => { var s = _session; if (s != null && s.AudioEnabled) s.SendControl(frame); });
+            _audio.Start();
+        }
+        else
+        {
+            _audio?.Stop();
+        }
+    }
+
+    /// <summary>Resolution or rotation of the streamed monitor changed in Windows: rebuild the stream with the new size.</summary>
+    private async Task OnSourceResizedAsync(ClientSession session)
+    {
+        await Task.Delay(300).ConfigureAwait(false); // let Windows finish the mode change
+        await _sessionGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (!ReferenceEquals(_session, session) || session.IsClosed) return;
+            Log.Info("Streamed monitor changed size; reconfiguring the stream");
+            StopStreaming(keepMonitor: true);
+            await StartStreamingAsync(session).ConfigureAwait(false);
+        }
+        finally { _sessionGate.Release(); }
     }
 
     private void OnSessionClosed(ClientSession s, string reason)
@@ -335,7 +454,12 @@ public sealed class AppController : IDisposable
 
             var abr = new BitrateController(outW, outH, fps, EffectiveQuality(session), s.MaxBitrateMbps);
             _d3d ??= new D3DDevice();
-            var pipeline = new StreamPipeline(_d3d, target, session, abr, mime, outW, outH);
+            var pipeline = new StreamPipeline(_d3d, target, session, abr, mime, outW, outH)
+            {
+                // Receivers that draw the cursor locally get it out of the video (zero-latency pointer).
+                CaptureCursor = !session.Hello.Caps.Has("cursor"),
+            };
+            pipeline.SourceResized += (_, _) => _ = OnSourceResizedAsync(session);
             pipeline.Failed += ex =>
             {
                 SetState(LinkState.Error, "Error en la transmisión", ex.Message);
@@ -351,6 +475,9 @@ public sealed class AppController : IDisposable
             pipeline.Start();
             _pipeline = pipeline;
             _injector.SetTarget(target.Monitor, outW, outH);
+            if (!_perfActive) { Perf.BeginStreaming(); _perfActive = true; }
+            UpdateAudio(session);
+            SendHostState(session);
             SetState(LinkState.Streaming, $"Transmitiendo a {session.Hello.DeviceName}");
         }
         catch (Exception ex)
@@ -367,6 +494,11 @@ public sealed class AppController : IDisposable
         _injector.ClearTarget();
         _pipeline?.Dispose();
         _pipeline = null;
+        if (!keepMonitor || _session == null || _session.IsClosed)
+        {
+            _audio?.Stop();
+            if (_perfActive) { Perf.EndStreaming(); _perfActive = false; }
+        }
         if (!keepMonitor) _display.Release();
     }
 
@@ -378,7 +510,9 @@ public sealed class AppController : IDisposable
     }
 
     /// <summary>Re-applies display settings to a live session (resolution, Hz, orientation, mode, quality).</summary>
-    public async Task RestartStreamingAsync()
+    /// <param name="replug">Unplug/re-plug the virtual monitor (needed for mode, resolution or refresh changes).
+    /// Quality, latency and codec changes only rebuild the encoder, so Windows does not rearrange windows.</param>
+    public async Task RestartStreamingAsync(bool replug = true)
     {
         await _sessionGate.WaitAsync().ConfigureAwait(false);
         try
@@ -386,7 +520,7 @@ public sealed class AppController : IDisposable
             var s = _session;
             if (s == null || s.IsClosed) return;
             // Unplug and re-plug the virtual monitor so the driver publishes the new mode list.
-            StopStreaming(keepMonitor: false);
+            StopStreaming(keepMonitor: !replug);
             await StartStreamingAsync(s).ConfigureAwait(false);
         }
         finally { _sessionGate.Release(); }
@@ -412,6 +546,8 @@ public sealed class AppController : IDisposable
         Remote.Dispose();
         Beacon.Dispose();
         _injector.Dispose();
+        _audio?.Dispose();
+        if (_perfActive) { Perf.EndStreaming(); _perfActive = false; }
         Updates.Dispose();
         Identity.Dispose();
     }

@@ -49,6 +49,8 @@ public sealed class WgcCapture : IDisposable
     public int Width { get; private set; }
     public int Height { get; private set; }
     public long FrameCounter;
+    /// <summary>QPC capture time of <see cref="Latest"/> in µs (same timebase as <see cref="Net.HostClock"/>).</summary>
+    public long LatestTimeUs;
     public readonly AutoResetEvent FrameEvent = new(false);
     public event Action<int, int>? SizeChanged;
 
@@ -56,7 +58,7 @@ public sealed class WgcCapture : IDisposable
 
     public static bool IsSupported => GraphicsCaptureSession.IsSupported();
 
-    public WgcCapture(D3DDevice d3d, IntPtr hmonitor)
+    public WgcCapture(D3DDevice d3d, IntPtr hmonitor, bool captureCursor = true)
     {
         _d3d = d3d;
         using (var dxgi = d3d.Device.QueryInterface<IDXGIDevice>())
@@ -79,7 +81,8 @@ public sealed class WgcCapture : IDisposable
         _pool = Direct3D11CaptureFramePool.CreateFreeThreaded(_winrtDevice, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, _poolSize);
         _pool.FrameArrived += OnFrameArrived;
         _session = _pool.CreateCaptureSession(_item);
-        try { _session.IsCursorCaptureEnabled = true; } catch { }
+        // Receivers that draw the cursor themselves (zero-latency pointer) get the picture without it.
+        try { _session.IsCursorCaptureEnabled = captureCursor; } catch { }
         try { _session.IsBorderRequired = false; } catch { /* Windows 10: yellow border cannot be removed */ }
         AllocateLatest(Width, Height);
     }
@@ -137,6 +140,7 @@ public sealed class WgcCapture : IDisposable
                     _d3d.Context.CopySubresourceRegion(Latest, 0, 0, 0, 0, src, 0,
                         new Vortice.Mathematics.Box(0, 0, 0, Math.Min((int)d.Width, Width), Math.Min((int)d.Height, Height), 1));
             }
+            Interlocked.Exchange(ref LatestTimeUs, (long)(frame.SystemRelativeTime.Ticks / 10));
             Interlocked.Increment(ref FrameCounter);
             FrameEvent.Set();
         }

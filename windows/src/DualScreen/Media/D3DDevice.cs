@@ -36,6 +36,12 @@ public sealed class D3DDevice : IDisposable
         }
         using (var mt = Device.QueryInterface<ID3D11Multithread>())
             mt.SetMultithreadProtected(true);
+        try
+        {
+            using var dxgiDev = Device.QueryInterface<IDXGIDevice>();
+            dxgiDev.SetGPUThreadPriority(7); // highest normal priority: our frames are not starved by games/apps
+        }
+        catch { }
         VideoDevice = Device.QueryInterface<ID3D11VideoDevice>();
         VideoContext = Context.QueryInterface<ID3D11VideoContext>();
         Log.Info($"GPU: {AdapterName} (vendor 0x{VendorId:X4})");

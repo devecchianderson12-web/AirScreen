@@ -57,6 +57,16 @@ class Store(context: Context) {
         get() = Settings.Global.getString(appContext.contentResolver, "device_name")?.takeIf { it.isNotBlank() }
             ?: "${Build.MANUFACTURER} ${Build.MODEL}"
 
+    /** Play the PC's sound on the phone. */
+    var audio: Boolean
+        get() = prefs.getBoolean("audio", false)
+        set(v) = prefs.edit().putBoolean("audio", v).apply()
+
+    /** Small live stats in a corner of the stream. */
+    var showStats: Boolean
+        get() = prefs.getBoolean("showStats", false)
+        set(v) = prefs.edit().putBoolean("showStats", v).apply()
+
     var quality: String
         get() = prefs.getString("quality", "auto") ?: "auto"
         set(v) = prefs.edit().putString("quality", v).apply()

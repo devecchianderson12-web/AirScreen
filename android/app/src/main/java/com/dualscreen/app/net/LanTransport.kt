@@ -49,13 +49,38 @@ class LanTransport private constructor(private val socket: SSLSocket, override v
          * blocked by Windows Firewall, so no rule or administrator rights are needed on the PC.
          */
         @Throws(IOException::class)
-        fun acceptReverse(server: java.net.ServerSocket, expectedFingerprint: String): LanTransport {
+        fun acceptReverse(server: java.net.ServerSocket, expectedFingerprint: String?, expectedHostId: String? = null): LanTransport {
             val raw = server.accept()
             val address = raw.inetAddress.hostAddress ?: "?"
-            return secure(raw, address, raw.port, expectedFingerprint, "Wi-Fi / LAN ($address, PC → teléfono)")
+            return secure(raw, address, raw.port, expectedFingerprint, "Wi-Fi / LAN ($address, PC → teléfono)", expectedHostId)
         }
 
-        private fun secure(raw: Socket, address: String, port: Int, expectedFingerprint: String?, description: String): LanTransport {
+        /**
+         * Reverse connection through the PC's LAN beacon (no Internet, no firewall rule on the PC): listens on a random
+         * port, answers the PC's beacons with "connect to me" until it does, then runs TLS as the client.
+         * Connections from other PCs are rejected by the host-id check.
+         */
+        @Throws(IOException::class)
+        fun viaBeacon(host: SeenHost, localAddresses: List<String>, expectedFingerprint: String?, timeoutMs: Int = 9000): LanTransport {
+            java.net.ServerSocket(0).use { server ->
+                server.soTimeout = timeoutMs
+                val stop = java.util.concurrent.atomic.AtomicBoolean(false)
+                val dialer = Thread {
+                    while (!stop.get()) {
+                        Beacons.find(host.hostId)?.let { Beacons.sendDial(it, localAddresses, server.localPort) }
+                        try { Thread.sleep(900) } catch (_: InterruptedException) { break }
+                    }
+                }.apply { isDaemon = true; start() }
+                try {
+                    return acceptReverse(server, expectedFingerprint, host.hostId)
+                } finally {
+                    stop.set(true)
+                    dialer.interrupt()
+                }
+            }
+        }
+
+        private fun secure(raw: Socket, address: String, port: Int, expectedFingerprint: String?, description: String, expectedHostId: String? = null): LanTransport {
             var seen: String? = null
             val tm = object : X509TrustManager {
                 override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) = throw CertificateException()
@@ -64,6 +89,11 @@ class LanTransport private constructor(private val socket: SSLSocket, override v
                     seen = fp
                     if (expectedFingerprint != null && !fp.equals(expectedFingerprint, ignoreCase = true))
                         throw CertificateException("PC certificate fingerprint mismatch")
+                    // hostId = first 16 bytes of SHA-256(SubjectPublicKeyInfo): proves it is the PC we asked for.
+                    if (expectedHostId != null) {
+                        val id = Protocol.sha256Hex(chain[0].publicKey.encoded).take(32)
+                        if (!id.equals(expectedHostId, ignoreCase = true)) throw CertificateException("another PC answered")
+                    }
                 }
                 override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
             }

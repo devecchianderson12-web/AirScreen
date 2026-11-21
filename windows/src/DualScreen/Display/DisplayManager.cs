@@ -35,7 +35,7 @@ public sealed class DisplayManager : IDisposable
 
     public async Task<DisplayTarget> AcquireAsync(DisplayMode mode, int width, int height, int hz, Orientation orientation, CancellationToken ct)
     {
-        if (mode == DisplayMode.Mirror) return GetPrimary();
+        if (mode == DisplayMode.Mirror) return GetMirrorTarget(SettingsStore.Current.MirrorMonitor);
 
         if (!DriverAvailable)
             throw new InvalidOperationException("El modo extendido necesita el controlador de pantalla virtual de DualScreen. Instálalo desde Configuración → Controlador.");
@@ -43,6 +43,7 @@ public sealed class DisplayManager : IDisposable
         bool portrait = orientation is Orientation.Portrait or Orientation.PortraitFlipped;
         int lw = portrait ? height : width, lh = portrait ? width : height; // driver modes are always landscape
         var modes = BuildModeList(lw, lh, hz);
+        bool freshlyPlugged = !_monitorPlugged;
         if (!_monitorPlugged)
         {
             try
@@ -75,7 +76,7 @@ public sealed class DisplayManager : IDisposable
         if (device == null) throw new TimeoutException("Windows no activó la pantalla virtual.");
 
         EnsureExtendTopology(device);
-        ApplyMode(device, lw, lh, hz, orientation);
+        if (freshlyPlugged) ApplyMode(device, lw, lh, hz, orientation);
 
         IntPtr mon = IntPtr.Zero;
         for (int i = 0; i < 30 && mon == IntPtr.Zero; i++)
@@ -103,14 +104,75 @@ public sealed class DisplayManager : IDisposable
         _monitorPlugged = false;
     }
 
+    /// <summary>
+    /// Modes the virtual monitor advertises, like a real one: the receiver's native mode first, other refresh
+    /// rates, then the usual smaller resolutions, so Windows Settings can change resolution freely (rotation and
+    /// scaling are handled by Windows itself).
+    /// </summary>
     private static (int W, int H, int Hz)[] BuildModeList(int w, int h, int hz)
     {
         var list = new List<(int, int, int)> { (w, h, hz) };
-        foreach (int r in new[] { 60, 90, 120, 144 }.Where(r => r != hz && r <= Math.Max(hz, 60)))
+        foreach (int r in new[] { 60, 75, 90, 120, 144, 165 }.Where(r => r != hz && r <= Math.Max(hz, 60)))
             list.Add((w, h, r));
-        foreach (var (sw, sh) in new[] { (1920, 1080), (1600, 900), (1280, 720) }.Where(x => x.Item1 < w && x.Item2 < h))
+        var smaller = Net.Negotiator.StandardResolutions
+            .Concat(new[] { (1024, 768), (800, 600) })
+            .Where(x => x.Item1 <= w && x.Item2 <= h && (x.Item1 != w || x.Item2 != h))
+            .Distinct().OrderByDescending(x => x.Item1 * x.Item2);
+        foreach (var (sw, sh) in smaller)
+        {
             list.Add((sw, sh, 60));
-        return list.Take(DriverClient.MaxModes).ToArray();
+            if (hz > 60 && list.Count < DriverClient.MaxModes - 4) list.Add((sw, sh, hz));
+        }
+        return list.Distinct().Take(DriverClient.MaxModes).ToArray();
+    }
+
+    /// <summary>Physical monitors of this PC (the DualScreen virtual one excluded), for mirror-mode selection.</summary>
+    public static List<Net.MonitorInfoMsg> ListMonitors()
+    {
+        var result = new List<Net.MonitorInfoMsg>();
+        string? virt = FindVirtualDisplayDevice();
+        Native.EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, (IntPtr h, IntPtr _, ref Native.RECT _, IntPtr _) =>
+        {
+            var info = new Native.MONITORINFOEX { cbSize = System.Runtime.InteropServices.Marshal.SizeOf<Native.MONITORINFOEX>() };
+            if (Native.GetMonitorInfo(h, ref info) && !string.Equals(info.szDevice, virt, StringComparison.OrdinalIgnoreCase))
+            {
+                var r = info.rcMonitor;
+                string name = FriendlyName(info.szDevice);
+                result.Add(new Net.MonitorInfoMsg
+                {
+                    Id = info.szDevice,
+                    Name = (info.dwFlags & 1) != 0 ? $"{name} (principal)" : name,
+                    Width = r.Right - r.Left,
+                    Height = r.Bottom - r.Top,
+                    Primary = (info.dwFlags & 1) != 0,
+                });
+            }
+            return true;
+        }, IntPtr.Zero);
+        return result.OrderByDescending(m => m.Primary).ToList();
+    }
+
+    private static string FriendlyName(string device)
+    {
+        var mon = Native.DISPLAY_DEVICE.Create();
+        if (Native.EnumDisplayDevices(device, 0, ref mon, 0) && !string.IsNullOrWhiteSpace(mon.DeviceString))
+            return mon.DeviceString.Trim();
+        return device.Replace(@"\\.\", "");
+    }
+
+    /// <summary>Mirror mode source: the chosen monitor, or the primary one.</summary>
+    public static DisplayTarget GetMirrorTarget(string? device)
+    {
+        if (!string.IsNullOrEmpty(device))
+        {
+            IntPtr mon = FindMonitorHandle(device);
+            if (mon != IntPtr.Zero)
+            {
+                var cur = GetCurrentMode(device);
+                return new DisplayTarget(device, mon, cur.w, cur.h, cur.hz, false);
+            }
+        }
+        return GetPrimary();
     }
 
     public static DisplayTarget GetPrimary()
@@ -172,8 +234,9 @@ public sealed class DisplayManager : IDisposable
     {
         var dm = Native.DEVMODE.Create();
         Native.EnumDisplaySettings(device, Native.ENUM_CURRENT_SETTINGS, ref dm);
-        // DMDO_DEFAULT=0, DMDO_90=1, DMDO_180=2, DMDO_270=3
-        int orient = o switch { Orientation.Landscape => 0, Orientation.Portrait => 1, Orientation.LandscapeFlipped => 2, _ => 3 };
+        // DMDO_DEFAULT=0, DMDO_90=1, DMDO_180=2, DMDO_270=3. "Landscape" (default) keeps the rotation the user
+        // chose in Windows Settings for this monitor, like a real display; other values force it.
+        int orient = o switch { Orientation.Landscape => dm.dmDisplayOrientation, Orientation.Portrait => 1, Orientation.LandscapeFlipped => 2, _ => 3 };
         bool rotated = orient is 1 or 3;
         dm.dmPelsWidth = rotated ? h : w;
         dm.dmPelsHeight = rotated ? w : h;

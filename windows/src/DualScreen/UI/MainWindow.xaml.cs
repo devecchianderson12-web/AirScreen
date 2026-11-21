@@ -237,6 +237,22 @@ public partial class MainWindow : Window
         RefreshAll();
     }
 
+    private void MirrorMonitor_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || MirrorMonitorBox.SelectedItem is not ComboBoxItem it) return;
+        string id = (string)it.Tag;
+        if (id == SettingsStore.Current.MirrorMonitor) return;
+        SettingsStore.Update(s => s.MirrorMonitor = id);
+        if (SettingsStore.Current.Mode == DisplayMode.Mirror) _ = _app.RestartStreamingAsync();
+    }
+
+    private void ReceiverAudio_Click(object sender, RoutedEventArgs e)
+    {
+        bool on = ReceiverAudioToggle.IsChecked == true;
+        SettingsStore.Update(s => s.ReceiverAudio = on);
+        _rx.Session?.SendHostSettings(new HostSettingsMsg { Audio = on });
+    }
+
     private void StartMinimized_Click(object sender, RoutedEventArgs e) =>
         SettingsStore.Update(s => s.StartMinimized = StartMinimizedToggle.IsChecked == true);
 
@@ -257,7 +273,7 @@ public partial class MainWindow : Window
         var cfg = s?.Config;
         ReceiveDetail.Text = s != null && cfg != null
             ? $"{cfg.Width} × {cfg.Height} @ {cfg.Fps} Hz · {(cfg.Mime == "video/hevc" ? "HEVC" : "H.264")} · {s.Fps:0} fps · " +
-              $"{s.RecvKbps / 1000:0.0} Mbps · decodifica en {s.DecodeMs:0.0} ms · RTT {(double.IsNaN(s.RttMs) ? "—" : s.RttMs.ToString("0") + " ms")} · {s.Transport} · {s.DecoderName}"
+              $"{s.RecvKbps / 1000:0.0} Mbps · latencia {(s.LatencyMs > 0 ? s.LatencyMs.ToString("0") + " ms" : "—")} · decodifica en {s.DecodeMs:0.0} ms · RTT {(double.IsNaN(s.RttMs) ? "—" : s.RttMs.ToString("0") + " ms")} · {s.Transport} · {s.DecoderName}"
             : "";
         ReceiveError.Text = _rx.LastError ?? "";
         ReceiveError.Visibility = string.IsNullOrEmpty(_rx.LastError) ? Visibility.Collapsed : Visibility.Visible;
@@ -339,7 +355,8 @@ public partial class MainWindow : Window
             double rtt = s!.RttMs;
             var cst = s.LastStats;
             double latency = (double.IsNaN(rtt) ? 0 : rtt / 2) + (stats?.EncodeMs ?? 0) + (cst?.DecodeMs ?? 0) + s.QueueDelayMs;
-            StatLatency.Text = double.IsNaN(rtt) ? "midiendo…" : $"≈ {latency:0} ms";
+            // Receivers that sync clocks report the real capture-to-display time; otherwise an estimate.
+            StatLatency.Text = cst?.LatencyMs > 0 ? $"{cst.LatencyMs:0} ms (medida)" : double.IsNaN(rtt) ? "midiendo…" : $"≈ {latency:0} ms";
             StatBitrate.Text = stats != null ? $"{stats.SentKbps / 1000:0.0} Mbps" : "—";
             string codec = cfg.Mime switch { "video/hevc" => "HEVC", "video/av01" => "AV1", _ => "H.264" };
             StatEncoder.Text = $"{codec} · {stats?.Encoder}";
@@ -388,6 +405,14 @@ public partial class MainWindow : Window
             CodecHint.Text = caps == null ? "Se elige según el hardware de ambos dispositivos."
                 : "Disponibles en ambos: " + string.Join(", ", caps.Codecs.Select(c => c switch { "video/hevc" => "HEVC", "video/av01" => "AV1", _ => "H.264" }));
             bool driver = _app.DriverInstalled;
+            MirrorMonitorCard.Visibility = s.Mode == DisplayMode.Mirror ? Visibility.Visible : Visibility.Collapsed;
+            var monitors = DisplayManager.ListMonitors();
+            MirrorMonitorBox.Items.Clear();
+            MirrorMonitorBox.Items.Add(new ComboBoxItem { Content = "Monitor principal", Tag = "" });
+            foreach (var m in monitors)
+                MirrorMonitorBox.Items.Add(new ComboBoxItem { Content = $"{m.Name} · {m.Width} × {m.Height}", Tag = m.Id });
+            MirrorMonitorBox.SelectedItem = MirrorMonitorBox.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == s.MirrorMonitor)
+                                            ?? MirrorMonitorBox.Items[0];
             var dst = DriverInstaller.GetStatus();
             DriverWarning.Visibility = s.Mode == DisplayMode.Extended && dst != Display.DriverStatus.Ok ? Visibility.Visible : Visibility.Collapsed;
             DriverWarningText.Text = dst switch
@@ -568,6 +593,7 @@ public partial class MainWindow : Window
         AnnounceToggle.IsChecked = s.AnnounceOnLan;
         LanNoCodeToggle.IsChecked = s.LanNoCode;
         StartMinimizedToggle.IsChecked = s.StartMinimized;
+        ReceiverAudioToggle.IsChecked = s.ReceiverAudio;
         RemoteInputToggle.IsChecked = s.AllowRemoteInput;
         PortBox.Text = s.LanPort.ToString();
         RemoteToggle.IsChecked = s.RemoteEnabled;
@@ -607,7 +633,8 @@ public partial class MainWindow : Window
             if (CodecBox.SelectedIndex >= 0) s.Codec = (CodecPreference)CodecBox.SelectedIndex;
         });
         if (sender == ResolutionBox) RefreshDisplayOptions();
-        _ = _app.RestartStreamingAsync();
+        bool replug = sender == ResolutionBox || sender == RefreshBox || sender == OrientationBox;
+        _ = _app.RestartStreamingAsync(replug);
     }
 
     private void Bitrate_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)

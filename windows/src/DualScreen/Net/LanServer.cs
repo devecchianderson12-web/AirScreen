@@ -97,7 +97,9 @@ public sealed class LanServer : IDisposable
         try
         {
             client.NoDelay = true;
-            client.SendBufferSize = 4 * 1024 * 1024;
+            // Small kernel buffer: a large one silently queues several frames on Wi-Fi where the bitrate
+            // controller cannot see them (latency). With 256 KB a backlog shows up as WriteAsync time instead.
+            client.SendBufferSize = 256 * 1024;
             client.ReceiveBufferSize = 256 * 1024;
             client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
             var ssl = new SslStream(client.GetStream(), leaveInnerStreamOpen: false);

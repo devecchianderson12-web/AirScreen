@@ -56,6 +56,9 @@ object Capabilities {
             .put("codecs", codecs)
             .put("abi", Build.SUPPORTED_ABIS.firstOrNull() ?: "")
             .put("sdkInt", Build.VERSION.SDK_INT)
+            .put("platform", "android")
+            .put("input", JSONArray(listOf("touch", "pen")))
+            .put("features", JSONArray(listOf("audio", "hostSettings", "latency")))
     }
 
     /** Highest frame rate the decoder supports at w×h in either orientation (capped at 240). */

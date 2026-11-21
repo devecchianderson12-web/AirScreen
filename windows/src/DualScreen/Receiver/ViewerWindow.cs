@@ -37,6 +37,14 @@ public sealed class ViewerWindow : IDisposable
     private CornerHold? _corner;
     private bool _cornerFired;
 
+    // Local cursor drawn with the PC's cursor image (feature "cursor"): it moves with zero latency.
+    private IntPtr _hostCursor;
+    private volatile bool _hostCursorVisible = true;
+    private long _lastLocalMouseMs;
+    private POINT _expectedMove = new() { X = int.MinValue };
+    /// <summary>Width of the video frame (for scaling the cursor image to the screen).</summary>
+    public int VideoWidth { get; set; }
+
     private sealed class CornerHold
     {
         public bool IsTouch;
@@ -174,7 +182,27 @@ public sealed class ViewerWindow : IDisposable
                     break;
 
                 case WM_MOUSEMOVE:
-                    if (!FromTouch()) { var (x, y) = Norm(lParam); Send?.Invoke(InputCodec.MouseMove(x, y)); }
+                    if (!FromTouch())
+                    {
+                        var cp = new POINT { X = (short)LoWord(lParam), Y = (short)HiWord(lParam) };
+                        ClientToScreen(_hwnd, ref cp);
+                        if (cp.X == _expectedMove.X && cp.Y == _expectedMove.Y) { _expectedMove.X = int.MinValue; return IntPtr.Zero; }
+                        _lastLocalMouseMs = Environment.TickCount64;
+                        var (x, y) = Norm(lParam);
+                        Send?.Invoke(InputCodec.MouseMove(x, y));
+                    }
+                    return IntPtr.Zero;
+                case WM_APP_CURSOR:
+                    // New cursor image or visibility: refresh it right away if the pointer is over the window.
+                    SetCursor(_hostCursorVisible ? _hostCursor : IntPtr.Zero);
+                    return IntPtr.Zero;
+                case WM_APP_CURSORPOS:
+                    var target = new POINT { X = (int)wParam, Y = (int)lParam };
+                    if (GetCursorPos(out var now) && (Math.Abs(now.X - target.X) > 1 || Math.Abs(now.Y - target.Y) > 1))
+                    {
+                        _expectedMove = target;
+                        SetCursorPos(target.X, target.Y);
+                    }
                     return IntPtr.Zero;
                 case WM_LBUTTONDOWN: return MouseButton(MouseButtonId.Left, true, lParam);
                 case WM_LBUTTONUP: return MouseButton(MouseButtonId.Left, false, lParam);
@@ -193,7 +221,8 @@ public sealed class ViewerWindow : IDisposable
                     Send?.Invoke(InputCodec.Wheel(true, (short)HiWord(wParam)));
                     return IntPtr.Zero;
                 case WM_SETCURSOR:
-                    if (LoWord(lParam) == HTCLIENT) { SetCursor(IntPtr.Zero); return (IntPtr)1; } // the host draws its cursor in the video
+                    // Either the PC's cursor image drawn locally, or nothing (older PCs draw it inside the video).
+                    if (LoWord(lParam) == HTCLIENT) { SetCursor(_hostCursorVisible ? _hostCursor : IntPtr.Zero); return (IntPtr)1; }
                     break;
 
                 case WM_KEYDOWN:
@@ -241,6 +270,7 @@ public sealed class ViewerWindow : IDisposable
                     DestroyWindow(hwnd);
                     return IntPtr.Zero;
                 case WM_DESTROY:
+                    { IntPtr c = Interlocked.Exchange(ref _hostCursor, IntPtr.Zero); if (c != IntPtr.Zero) DestroyIcon(c); }
                     PostQuitMessage(0);
                     return IntPtr.Zero;
             }
@@ -473,6 +503,75 @@ public sealed class ViewerWindow : IDisposable
         Send?.Invoke(InputCodec.Key(scan, up, ext));
     }
 
+    // ------------------------------------------------------------------ host cursor
+
+    /// <summary>CURSOR frames from the PC (any thread).</summary>
+    public void OnHostCursor(ReadOnlySpan<byte> p)
+    {
+        if (p.Length < 1 || _hwnd == IntPtr.Zero) return;
+        if (p[0] == 1 && p.Length >= 9)
+        {
+            int hx = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(p[1..]);
+            int hy = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(p[3..]);
+            int w = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(p[5..]);
+            int h = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(p[7..]);
+            if (w <= 0 || h <= 0 || p.Length < 9 + w * h * 4) return;
+            byte[] bgra = p.Slice(9, w * h * 4).ToArray();
+            var (l, _, r, _) = ContentRect?.Invoke() ?? (0, 0, _width, 0);
+            double scale = VideoWidth > 0 && r > l ? (r - l) / (double)VideoWidth : 1.0;
+            if (Math.Abs(scale - 1) > 0.05)
+            {
+                int nw = Math.Max(1, (int)Math.Round(w * scale)), nh = Math.Max(1, (int)Math.Round(h * scale));
+                var scaled = new byte[nw * nh * 4];
+                for (int y = 0; y < nh; y++)
+                    for (int x = 0; x < nw; x++)
+                        Buffer.BlockCopy(bgra, ((y * h / nh) * w + (x * w / nw)) * 4, scaled, (y * nw + x) * 4, 4);
+                bgra = scaled; hx = (int)(hx * scale); hy = (int)(hy * scale); w = nw; h = nh;
+            }
+            IntPtr cur = CreateCursorFromBgra(bgra, w, h, hx, hy);
+            if (cur == IntPtr.Zero) return;
+            IntPtr old = Interlocked.Exchange(ref _hostCursor, cur);
+            PostMessage(_hwnd, WM_APP_CURSOR, IntPtr.Zero, IntPtr.Zero);
+            if (old != IntPtr.Zero) DestroyIcon(old);
+        }
+        else if (p[0] == 2 && p.Length >= 6)
+        {
+            bool visible = p[1] != 0;
+            if (visible != _hostCursorVisible)
+            {
+                _hostCursorVisible = visible;
+                PostMessage(_hwnd, WM_APP_CURSOR, IntPtr.Zero, IntPtr.Zero);
+            }
+            // Movements that did not come from this PC's mouse (the PC's own mouse, an app moving the pointer)
+            // are mirrored on the local cursor once the local mouse has been still for a moment.
+            if (!visible || Environment.TickCount64 - _lastLocalMouseMs < 300) return;
+            ushort nx = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(p[2..]);
+            ushort ny = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(p[4..]);
+            var (l, t, r, b) = ContentRect?.Invoke() ?? (0, 0, _width, _height);
+            var pt = new POINT { X = l + (int)Math.Round(nx / 65535.0 * (r - l)), Y = t + (int)Math.Round(ny / 65535.0 * (b - t)) };
+            ClientToScreen(_hwnd, ref pt);
+            PostMessage(_hwnd, WM_APP_CURSORPOS, (IntPtr)pt.X, (IntPtr)pt.Y);
+        }
+    }
+
+    private static IntPtr CreateCursorFromBgra(byte[] bgra, int w, int h, int hx, int hy)
+    {
+        var bi = new BITMAPV5HEADER
+        {
+            bV5Size = Marshal.SizeOf<BITMAPV5HEADER>(), bV5Width = w, bV5Height = -h, bV5Planes = 1, bV5BitCount = 32,
+            bV5Compression = 3, bV5RedMask = 0x00FF0000, bV5GreenMask = 0x0000FF00, bV5BlueMask = 0x000000FF, bV5AlphaMask = 0xFF000000,
+        };
+        IntPtr color = CreateDIBSection(IntPtr.Zero, ref bi, 0, out IntPtr bits, IntPtr.Zero, 0);
+        if (color == IntPtr.Zero) return IntPtr.Zero;
+        Marshal.Copy(bgra, 0, bits, bgra.Length);
+        IntPtr mask = CreateBitmap(w, h, 1, 1, IntPtr.Zero);
+        var ii = new ICONINFO { fIcon = false, xHotspot = hx, yHotspot = hy, hbmMask = mask, hbmColor = color };
+        IntPtr cur = CreateIconIndirect(ref ii);
+        DeleteObject(color);
+        DeleteObject(mask);
+        return cur;
+    }
+
     private void ReleaseAll()
     {
         _keysDown.Clear();
@@ -513,7 +612,8 @@ public sealed class ViewerWindow : IDisposable
         WM_RBUTTONDOWN = 0x0204, WM_RBUTTONUP = 0x0205, WM_RBUTTONDBLCLK = 0x0206, WM_MBUTTONDOWN = 0x0207,
         WM_MBUTTONUP = 0x0208, WM_MBUTTONDBLCLK = 0x0209, WM_MOUSEWHEEL = 0x020A, WM_XBUTTONDOWN = 0x020B,
         WM_XBUTTONUP = 0x020C, WM_MOUSEHWHEEL = 0x020E, WM_POINTERUPDATE = 0x0245, WM_POINTERDOWN = 0x0246,
-        WM_POINTERUP = 0x0247, WM_POINTERLEAVE = 0x024A, WM_POINTERCAPTURECHANGED = 0x024C, WM_DISPLAYCHANGE = 0x007E;
+        WM_POINTERUP = 0x0247, WM_POINTERLEAVE = 0x024A, WM_POINTERCAPTURECHANGED = 0x024C, WM_DISPLAYCHANGE = 0x007E,
+        WM_APP_CURSOR = 0x8001, WM_APP_CURSORPOS = 0x8002;
     private const int SC_KEYMENU = 0xF100, SC_SCREENSAVE = 0xF140, SC_MONITORPOWER = 0xF170;
     private const int HTCLIENT = 1, SIZE_MINIMIZED = 1, SW_SHOW = 5, SW_MINIMIZE = 6, BLACK_BRUSH = 4;
     private const int VK_ESCAPE = 0x1B, VK_F4 = 0x73, VK_LWIN = 0x5B, VK_RWIN = 0x5C;
@@ -540,6 +640,27 @@ public sealed class ViewerWindow : IDisposable
 
     [StructLayout(LayoutKind.Sequential)]
     private struct PROPERTYKEY { public Guid fmtid; public uint pid; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ICONINFO { public bool fIcon; public int xHotspot, yHotspot; public IntPtr hbmMask, hbmColor; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BITMAPV5HEADER
+    {
+        public int bV5Size, bV5Width, bV5Height; public ushort bV5Planes, bV5BitCount; public int bV5Compression, bV5SizeImage,
+            bV5XPelsPerMeter, bV5YPelsPerMeter, bV5ClrUsed, bV5ClrImportant;
+        public uint bV5RedMask, bV5GreenMask, bV5BlueMask, bV5AlphaMask; public int bV5CSType;
+        public int e0, e1, e2, e3, e4, e5, e6, e7, e8; // CIEXYZTRIPLE
+        public int bV5GammaRed, bV5GammaGreen, bV5GammaBlue, bV5Intent, bV5ProfileData, bV5ProfileSize, bV5Reserved;
+    }
+
+    [DllImport("gdi32.dll")] private static extern IntPtr CreateDIBSection(IntPtr dc, ref BITMAPV5HEADER bi, uint usage, out IntPtr bits, IntPtr section, uint offset);
+    [DllImport("gdi32.dll")] private static extern IntPtr CreateBitmap(int w, int h, uint planes, uint bpp, IntPtr bits);
+    [DllImport("gdi32.dll")] private static extern bool DeleteObject(IntPtr h);
+    [DllImport("user32.dll")] private static extern IntPtr CreateIconIndirect(ref ICONINFO ii);
+    [DllImport("user32.dll")] private static extern bool DestroyIcon(IntPtr h);
+    [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT p);
+    [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
 
     [StructLayout(LayoutKind.Explicit, Size = 24)]
     private struct PROPVARIANT { [FieldOffset(0)] public ushort vt; [FieldOffset(8)] public short boolVal; }

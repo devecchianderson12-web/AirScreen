@@ -2,6 +2,24 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones [SemVer](https://semver.org/lang/es/).
 
+## [0.3.0] - 2026-11-21
+
+### Añadido
+- **Android igual que Windows**: la pantalla principal lista las computadoras con DualScreen de la red por su nombre; un toque y se conecta, sin código (queda guardada). Nuevo diseño con tarjetas, botón circular «Iniciar» e interruptores.
+- **Táctil y lápiz desde el teléfono**: el teléfono funciona como pantalla táctil de la PC (multitáctil y lápiz con presión).
+- **Ajustes durante la transmisión** (teléfono): un punto casi invisible en el borde superior derecho abre el panel para cambiar entre pantalla extendida y espejo, elegir qué monitor ver en espejo, prioridad (latencia mínima / equilibrado / calidad), calidad, resolución, frecuencia y códec. Se aplican en la PC (son sus mismos ajustes de Windows).
+- **Monitor a mostrar en modo espejo** cuando la PC tiene varios monitores (también en Windows → Pantalla).
+- **Sonido de la PC** en el teléfono o en la notebook receptora (sin compresión, con muy poco retraso).
+- **Cursor local** en la notebook receptora: el puntero se dibuja en el receptor con la forma real del de la PC y se mueve sin demora.
+- **Latencia real medida** de captura a pantalla (sincronizando relojes), visible en Inicio, en el receptor y en las estadísticas del teléfono.
+- **Reconexión automática** del receptor Windows si se corta el Wi‑Fi, y detección de conexiones colgadas en ambos lados.
+
+### Mejorado
+- La pantalla virtual se comporta como un monitor real: respeta la rotación, la escala (125 %, 150 %…) y la resolución que elijas en Configuración de Windows, ofrece la lista completa de resoluciones y la transmisión se adapta sola al cambiarlas.
+- Menos latencia: búfer de envío TCP chico (sin colas ocultas), Wi‑Fi en modo streaming durante la transmisión (sin pausas de ahorro de energía ni escaneos), hilos críticos con prioridad multimedia, temporizador de 1 ms y prioridad alta en la GPU.
+- Más nitidez: cuando la imagen queda quieta se refina automáticamente con el ancho de banda libre (texto más nítido sin sumar latencia).
+- Cambiar calidad, prioridad o códec ya no desconecta y reconecta el monitor virtual.
+
 ## [0.2.9] - 2026-11-21
 
 ### Corregido

@@ -24,6 +24,7 @@ public sealed class ClientSession : IAsyncDisposable
     private Task? _writer, _reader, _pinger;
     private int _queuedVideo;
     private int _closed;
+    private long _lastRxUs = HostClock.NowUs();
 
     public string Transport { get; }
     public string RemoteDescription { get; }
@@ -39,6 +40,8 @@ public sealed class ClientSession : IAsyncDisposable
     public int QueuedVideoFrames => Volatile.Read(ref _queuedVideo);
     public bool IsClosed => _closed != 0;
     public CancellationToken Token => _cts.Token;
+    /// <summary>The receiver asked for the PC's sound (HOST_SETTINGS audio).</summary>
+    public bool AudioEnabled { get; set; }
 
     public ClientSession(Stream stream, HelloMsg hello, string transport, string remoteDescription)
     {
@@ -112,12 +115,18 @@ public sealed class ClientSession : IAsyncDisposable
             while (!ct.IsCancellationRequested)
             {
                 var f = await FrameCodec.ReadAsync(_stream, ct).ConfigureAwait(false);
+                Interlocked.Exchange(ref _lastRxUs, HostClock.NowUs());
                 try
                 {
                     switch (f.Type)
                     {
                         case MsgType.Ping:
-                            SendControl(FrameCodec.Encode(MsgType.Pong, f.Payload));
+                            // Echo + the PC clock: lets the receiver estimate the clock offset and measure real
+                            // capture-to-display latency (older receivers only read the first 8 bytes).
+                            var pong = new byte[16];
+                            f.Payload[..Math.Min(8, f.Length)].CopyTo(pong);
+                            System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(pong.AsSpan(8), HostClock.NowUs());
+                            SendControl(FrameCodec.Encode(MsgType.Pong, pong));
                             break;
                         case MsgType.Pong when f.Length >= 8:
                             long sent = System.Buffers.Binary.BinaryPrimitives.ReadInt64BigEndian(f.Payload);
@@ -153,12 +162,18 @@ public sealed class ClientSession : IAsyncDisposable
             {
                 SendControl(FrameCodec.EncodeTimestamp(MsgType.Ping, NowUs()));
                 await Task.Delay(1000, ct).ConfigureAwait(false);
+                // Watchdog: receivers ping every second; 10 s of silence means a dead link (Wi-Fi gone, sleep…).
+                if (HostClock.NowUs() - Interlocked.Read(ref _lastRxUs) > 10_000_000)
+                {
+                    Close("timeout: the device stopped answering");
+                    return;
+                }
             }
         }
         catch (OperationCanceledException) { }
     }
 
-    private long NowUs() => _clock.ElapsedTicks * 1_000_000 / Stopwatch.Frequency;
+    private static long NowUs() => HostClock.NowUs();
 
     public void Close(string reason)
     {

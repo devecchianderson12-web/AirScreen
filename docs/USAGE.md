@@ -38,7 +38,11 @@
 
 ## Android
 1. Instala `DualScreen.apk` (permite "instalar apps desconocidas" para tu navegador/gestor de archivos).
-2. Abre DualScreen → **Escanear QR** (o *Introducir código* si el PC aparece en "PCs en esta red").
+2. Abre DualScreen: en *Tus computadoras* aparecen las PCs con DualScreen de tu red. Tocá una (o el círculo
+   **Iniciar**) y listo, sin código. *Escanear QR* y *Código* quedan para redes distintas o PCs que piden código.
+3. Durante la transmisión, el punto del borde superior derecho abre los ajustes: pantalla extendida / espejo,
+   monitor, prioridad, calidad, resolución, frecuencia, códec, sonido y estadísticas. Se aplican en la PC.
+4. El teléfono funciona como pantalla táctil de la PC (multitáctil y lápiz).
 3. La pantalla pasa a modo completo, sin barras ni controles encima. **Doble toque**: estadísticas durante 4 s.
    **Atrás**: desconectar o minimizar.
 4. Los PCs emparejados se reconectan solos (también si cambia la IP o hay un corte breve).

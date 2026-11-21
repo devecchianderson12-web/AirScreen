@@ -7,8 +7,10 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.Surface
+import com.dualscreen.app.audio.AudioPlayer
 import com.dualscreen.app.data.PairedHost
 import com.dualscreen.app.data.Store
+import com.dualscreen.app.net.Beacons
 import com.dualscreen.app.net.DiscoveredHost
 import com.dualscreen.app.net.Discovery
 import com.dualscreen.app.net.FrameIO
@@ -16,6 +18,7 @@ import com.dualscreen.app.net.LanTransport
 import com.dualscreen.app.net.PairInfo
 import com.dualscreen.app.net.Protocol
 import com.dualscreen.app.net.RemoteTransport
+import com.dualscreen.app.net.SeenHost
 import com.dualscreen.app.net.Transport
 import com.dualscreen.app.video.Capabilities
 import com.dualscreen.app.video.VideoDecoder
@@ -24,11 +27,14 @@ import java.io.IOException
 import java.nio.ByteBuffer
 import java.security.SecureRandom
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.Executors
 
 sealed class Target {
     data class Paired(val host: PairedHost) : Target()
     data class Qr(val info: PairInfo) : Target()
     data class Code(val host: DiscoveredHost, val code: String) : Target()
+    /** One tap on a PC found on the network: no code (if the PC allows it), saved afterwards. */
+    data class Lan(val host: SeenHost) : Target()
 }
 
 enum class LinkState { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
@@ -50,6 +56,16 @@ object StreamHub {
     @Volatile var recvKbps = 0f; private set
     val decodeMs get() = decoder?.decodeMs ?: 0f
     val fps get() = decoder?.fpsNow ?: 0f
+    /** Real capture-to-display latency (ms) once the PC clock offset is known, else NaN. */
+    @Volatile var latencyMs = Double.NaN; private set
+    /** Settings and options of the PC (HOST_STATE), for the in-stream settings panel. */
+    @Volatile var hostState: JSONObject? = null; private set
+
+    private val sendExec = Executors.newSingleThreadExecutor { r -> Thread(r, "DualScreen.Send").apply { isDaemon = true } }
+    private val audio = AudioPlayer()
+    @Volatile private var clockOffsetUs = 0L
+    @Volatile private var haveOffset = false
+    private var bestRttUs = Double.MAX_VALUE
 
     private var worker: Thread? = null
     @Volatile private var userStopped = false
@@ -90,9 +106,18 @@ object StreamHub {
         worker = null
     }
 
-    fun setQuality(q: String) {
-        runCatching { io?.writeJson(Protocol.CLIENT_SETTINGS, JSONObject().put("quality", q)) }
+    fun setQuality(q: String) = send(Protocol.CLIENT_SETTINGS, JSONObject().put("quality", q).toString().toByteArray())
+
+    /** Never blocks the caller (UI thread): frames go out on a dedicated sender thread. */
+    fun send(type: Int, payload: ByteArray) {
+        val frameIo = io ?: return
+        sendExec.execute { runCatching { frameIo.write(type, payload) } }
     }
+
+    fun sendInput(payload: ByteArray) = send(Protocol.INPUT, payload)
+
+    /** Changes a setting on the PC (applied to the PC's own DualScreen settings). */
+    fun sendHostSettings(o: JSONObject) = send(Protocol.HOST_SETTINGS, o.toString().toByteArray())
 
     // ------------------------------------------------------------------ surface / decoder
 
@@ -121,13 +146,16 @@ object StreamHub {
         requestKeyframe()
     }
 
-    private fun requestKeyframe() {
-        Thread { runCatching { io?.write(Protocol.KEYFRAME_REQUEST, ByteArray(0)) } }.start()
-    }
+    private fun requestKeyframe() = send(Protocol.KEYFRAME_REQUEST, ByteArray(0))
 
     // ------------------------------------------------------------------ connection
 
     private fun run(ctx: Context, initial: Target) {
+        Beacons.start(ctx)
+        try { runCore(ctx, initial) } finally { Beacons.stop() }
+    }
+
+    private fun runCore(ctx: Context, initial: Target) {
         val store = Store(ctx)
         var target = initial
         var attempt = 0
@@ -159,6 +187,9 @@ object StreamHub {
                 transport = null
                 io = null
                 config = null
+                hostState = null
+                haveOffset = false; bestRttUs = Double.MAX_VALUE; latencyMs = Double.NaN
+                audio.release()
                 synchronized(decoderLock) { decoder?.release(); decoder = null }
             }
             if (userStopped) break
@@ -216,6 +247,14 @@ object StreamHub {
                 }
             } catch (e: Exception) { errors += "conexión inversa: ${explain(e)}"; null }
         }
+        /** PC on the same network found by its beacon: ask it to connect to us (works with no Internet and no firewall rule). */
+        fun tryBeacon(host: SeenHost?, fp: String?): Transport? {
+            if (host?.beaconSource == null) return null
+            set(LinkState.CONNECTING, "Paso 2/3: pidiendo a ${host.name} que se conecte…")
+            val addrs = localAddresses()
+            if (addrs.isEmpty()) return null
+            return try { LanTransport.viaBeacon(host, addrs, fp) } catch (e: Exception) { errors += "red local: ${explain(e)}"; null }
+        }
         fun tryRemote(url: String?, hostId: String, fp: String): Transport? {
             if (url == null) { errors += "conexión remota: no configurada en el PC"; return null }
             set(LinkState.CONNECTING, "Paso 3/3: conectando por Internet (puede tardar hasta 30 s)…")
@@ -227,9 +266,12 @@ object StreamHub {
                 val h = target.host
                 hostName = h.name
                 // Prefer a fresh discovery answer (the PC's IP may have changed).
-                val found = runCatching { Discovery.scan(ctx, 800) }.getOrDefault(emptyList()).filter { it.hostId == h.hostId }
-                tryLan(found.map { it.address } + h.addresses, found.firstOrNull()?.port ?: h.port, h.fingerprint)
-                    ?: tryReverse(h.signalingUrl, h.hostId, h.fingerprint)
+                val seen = Beacons.find(h.hostId) ?: run { Thread.sleep(1600); Beacons.find(h.hostId) }
+                val found = runCatching { Discovery.scan(ctx, 600) }.getOrDefault(emptyList()).filter { it.hostId == h.hostId }
+                val port = found.firstOrNull()?.port ?: seen?.port?.takeIf { it > 0 } ?: h.port
+                (if (found.isNotEmpty() || (seen?.port ?: 0) > 0) tryLan(found.map { it.address } + listOfNotNull(seen?.address) + h.addresses, port, h.fingerprint) else null)
+                    ?: tryBeacon(seen, h.fingerprint)
+                    ?: tryReverse(h.signalingUrl ?: seen?.signalingUrl, h.hostId, h.fingerprint)
                     ?: tryRemote(h.signalingUrl, h.hostId, h.fingerprint)
                     ?: throw IOException("No se encontró ${h.name}." + details())
             }
@@ -241,9 +283,17 @@ object StreamHub {
                     ?: tryRemote(i.signalingUrl, i.hostId, i.fingerprint)
                     ?: throw FatalError("No se pudo conectar con ${i.name}." + details())
             }
+            is Target.Lan -> {
+                val h = Beacons.find(target.host.hostId) ?: target.host
+                hostName = h.name
+                (if (h.port > 0) tryLan(listOf(h.address), h.port, null) else null)
+                    ?: tryBeacon(h, null)
+                    ?: throw FatalError("No se pudo conectar con ${h.name}." + details())
+            }
             is Target.Code -> {
                 hostName = target.host.name
-                tryLan(listOf(target.host.address), target.host.port, null)
+                (if (target.host.port > 0) tryLan(listOf(target.host.address), target.host.port, null) else null)
+                    ?: tryBeacon(Beacons.find(target.host.hostId), null)
                     ?: throw FatalError("No se pudo conectar con ${target.host.name}." + details())
             }
         }
@@ -255,7 +305,9 @@ object StreamHub {
         io = frameIo
         val auth = JSONObject()
         val code = when (target) { is Target.Qr -> target.info.code; is Target.Code -> target.code; else -> null }
-        if (target is Target.Paired) {
+        if (target is Target.Lan) {
+            auth.put("mode", "lan")
+        } else if (target is Target.Paired) {
             val token = store.decrypt(target.host.tokenEnc) ?: throw FatalError("Emparejamiento dañado; vuelve a emparejar")
             auth.put("mode", "token").put("token", token)
         } else {
@@ -284,6 +336,7 @@ object StreamHub {
                 "not-paired" -> "Este PC revocó el acceso. Vuelve a emparejar."
                 "busy" -> "El PC ya está transmitiendo a otro dispositivo."
                 "protocol-mismatch" -> "Versiones incompatibles. Actualiza DualScreen en ambos dispositivos."
+                "code-required" -> "Ese PC pide código. Tocá ⋮ junto a su nombre → «Conectar con código»."
                 else -> "Conexión rechazada"
             })
         }
@@ -293,6 +346,7 @@ object StreamHub {
             val (addresses, port, signaling) = when (target) {
                 is Target.Qr -> Triple(target.info.addresses, target.info.port, target.info.signalingUrl)
                 is Target.Code -> Triple(listOf(target.host.address), target.host.port, null)
+                is Target.Lan -> Triple(listOf(target.host.address), target.host.port, target.host.signalingUrl)
                 else -> Triple(emptyList(), Protocol.LAN_PORT, null)
             }
             paired = PairedHost(w.getString("hostId"), hostName, t.fingerprint, addresses, port, signaling, store.encrypt(token), System.currentTimeMillis())
@@ -300,6 +354,7 @@ object StreamHub {
         }
         paired?.let { store.touch(it.hostId) }
         set(LinkState.CONNECTED, "Conectado a $hostName")
+        send(Protocol.HOST_SETTINGS, JSONObject().put("audio", store.audio).toString().toByteArray())
 
         val pinger = Thread({
             try {
@@ -311,7 +366,8 @@ object StreamHub {
                         .put("fps", (d?.fpsNow ?: 0f).toDouble())
                         .put("decodeMs", (d?.decodeMs ?: 0f).toDouble())
                         .put("recvKbps", recvKbps.toDouble())
-                        .put("dropped", d?.dropped ?: 0))
+                        .put("dropped", d?.dropped ?: 0)
+                        .put("latencyMs", if (latencyMs.isNaN()) 0.0 else latencyMs))
                     changed()
                 }
             } catch (_: Exception) { }
@@ -324,10 +380,24 @@ object StreamHub {
                     Protocol.VIDEO -> onVideo(f.payload)
                     Protocol.PING -> frameIo.write(Protocol.PONG, f.payload)
                     Protocol.PONG -> {
-                        val sent = ByteBuffer.wrap(f.payload).long
-                        val rtt = (System.nanoTime() / 1000 - sent) / 1000.0
+                        val bb = ByteBuffer.wrap(f.payload)
+                        val sent = bb.long
+                        val now = System.nanoTime() / 1000
+                        val rtt = (now - sent) / 1000.0
                         rttMs = if (rttMs.isNaN()) rtt else rttMs * 0.7 + rtt * 0.3
+                        if (f.payload.size >= 16) {
+                            // NTP-style clock offset from the lowest-RTT samples: enables real latency measurement.
+                            val hostNow = bb.long
+                            val rttUs = (now - sent).toDouble()
+                            if (!haveOffset || rttUs <= bestRttUs * 1.2) {
+                                if (rttUs < bestRttUs) bestRttUs = rttUs
+                                clockOffsetUs = hostNow - (sent + (rttUs / 2).toLong())
+                                haveOffset = true
+                            }
+                        }
                     }
+                    Protocol.AUDIO -> audio.feed(f.payload)
+                    Protocol.HOST_STATE -> { hostState = runCatching { f.json() }.getOrNull(); changed() }
                     Protocol.STREAM_CONFIG -> {
                         val c = f.json()
                         config = StreamConfig(c.getString("mime"), c.getInt("width"), c.getInt("height"), c.getInt("fps"), c.optString("mode"))
@@ -359,6 +429,10 @@ object StreamHub {
             windowStart = now
         }
         decoder?.submit(p.copyOfRange(9, p.size), pts, flags and Protocol.FLAG_KEYFRAME != 0)
+        if (haveOffset) {
+            val lat = (System.nanoTime() / 1000 + clockOffsetUs - pts) / 1000.0 + decodeMs
+            if (lat in 0.0..2000.0) latencyMs = if (latencyMs.isNaN()) lat else latencyMs * 0.9 + lat * 0.1
+        }
     }
 }
 

@@ -28,6 +28,12 @@ object Protocol {
     const val KEYFRAME_REQUEST: Int = 0x08
     const val CLIENT_SETTINGS: Int = 0x09
     const val BYE: Int = 0x0A
+    const val INPUT: Int = 0x0B
+    const val CURSOR: Int = 0x0C
+    const val AUDIO: Int = 0x0D
+    const val HOST_STATE: Int = 0x0E
+    const val HOST_SETTINGS: Int = 0x0F
+    const val BEACON_PORT = 47802
 
     const val FLAG_KEYFRAME = 1
 
@@ -81,4 +87,20 @@ class FrameIO(input: InputStream, private val output: OutputStream) {
     fun writeJson(type: Int, obj: JSONObject) = write(type, obj.toString().toByteArray(Charsets.UTF_8))
 
     fun writeLong(type: Int, value: Long) = write(type, ByteBuffer.allocate(8).putLong(value).array())
+}
+
+/** INPUT (0x0B) payloads; positions normalized 0..65535 over the video frame (see shared/PROTOCOL.md). */
+object InputCodec {
+    const val DOWN = 0; const val MOVE = 1; const val UP = 2; const val CANCEL = 3
+    const val PEN_HOVER = 0; const val PEN_DOWN = 1; const val PEN_MOVE = 2; const val PEN_UP = 3; const val PEN_LEAVE = 4
+
+    fun touch(id: Int, state: Int, x: Int, y: Int, pressure: Int): ByteArray =
+        ByteBuffer.allocate(9).put(1).put(id.toByte()).put(state.toByte())
+            .putShort(x.toShort()).putShort(y.toShort()).putShort(pressure.toShort()).array()
+
+    fun pen(state: Int, x: Int, y: Int, pressure: Int, buttons: Int): ByteArray =
+        ByteBuffer.allocate(9).put(2).put(state.toByte())
+            .putShort(x.toShort()).putShort(y.toShort()).putShort(pressure.toShort()).put(buttons.toByte()).array()
+
+    fun releaseAll(): ByteArray = byteArrayOf(7)
 }

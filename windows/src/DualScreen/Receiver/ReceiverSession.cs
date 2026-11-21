@@ -32,6 +32,11 @@ public sealed class ReceiverSession
     private int _framesWindow, _dropped, _decodeErrors;
     private long _bytesWindow;
     private double _decodeMsAvg;
+    private double _latencyAvg;
+    private long _clockOffsetUs;      // host clock - local clock
+    private double _bestRttUs = double.MaxValue;
+    private bool _haveOffset;
+    private readonly AudioPlayer _audio = new();
 
     public string HostName { get; }
     public string Transport { get; }
@@ -40,6 +45,9 @@ public sealed class ReceiverSession
     public float Fps { get; private set; }
     public float RecvKbps { get; private set; }
     public float DecodeMs => (float)_decodeMsAvg;
+    /// <summary>Measured capture-to-display latency (ms), or 0 until the clock offset is known.</summary>
+    public float LatencyMs => _haveOffset ? (float)_latencyAvg : 0;
+    public HostStateMsg? HostState { get; private set; }
     public string DecoderName => _decoder == null ? "" : _decoder.Name + (_decoder.IsHardware ? " (DXVA)" : " (software)");
     public bool IsClosed => _closed != 0;
 
@@ -64,6 +72,8 @@ public sealed class ReceiverSession
         _viewer.ContentRect = () => { var c = r.ContentRect; return (c.Left, c.Top, c.Right, c.Bottom); };
         _viewer.Resized += (w, h) => { try { r.Resize(w, h); } catch (Exception ex) { Log.Warn("Resize failed: " + ex.Message); } };
         _viewer.Send = Send;
+        // Tell the PC whether we want its sound (setting of this PC as a receiver).
+        Send(FrameCodec.EncodeJson(MsgType.HostSettings, new HostSettingsMsg { Audio = SettingsStore.Current.ReceiverAudio }));
         _ = Task.Run(WriteLoop);
         _ = Task.Run(PingLoop);
         _reader.Start();
@@ -105,7 +115,7 @@ public sealed class ReceiverSession
                 lastBytes = bytes;
                 Send(FrameCodec.EncodeJson(MsgType.Stats, new ClientStatsMsg
                 {
-                    Fps = Fps, DecodeMs = DecodeMs, RecvKbps = RecvKbps, Dropped = _dropped,
+                    Fps = Fps, DecodeMs = DecodeMs, RecvKbps = RecvKbps, Dropped = _dropped, LatencyMs = LatencyMs,
                 }));
                 Changed?.Invoke();
             }
@@ -114,6 +124,14 @@ public sealed class ReceiverSession
     }
 
     private void ReadLoop()
+    {
+        IntPtr mmcss = Perf.EnterRealtime();
+        Perf.BeginStreaming();
+        try { ReadLoopCore(); }
+        finally { Perf.LeaveRealtime(mmcss); Perf.EndStreaming(); }
+    }
+
+    private void ReadLoopCore()
     {
         string reason = "connection closed";
         bool byHost = false;
@@ -130,8 +148,28 @@ public sealed class ReceiverSession
                         case MsgType.StreamConfig: OnConfig(f.Json<StreamConfigMsg>()); break;
                         case MsgType.Ping: Send(FrameCodec.Encode(MsgType.Pong, f.Payload)); break;
                         case MsgType.Pong when f.Length >= 8:
-                            double rtt = (NowUs() - BinaryPrimitives.ReadInt64BigEndian(f.Payload)) / 1000.0;
+                            long t0 = BinaryPrimitives.ReadInt64BigEndian(f.Payload);
+                            long t1 = NowUs();
+                            double rtt = (t1 - t0) / 1000.0;
                             RttMs = double.IsNaN(RttMs) ? rtt : RttMs * 0.7 + rtt * 0.3;
+                            if (f.Length >= 16)
+                            {
+                                // NTP-style offset from the lowest-RTT sample (least queuing error).
+                                long hostNow = BinaryPrimitives.ReadInt64BigEndian(f.Payload[8..]);
+                                double rttUs = t1 - t0;
+                                if (rttUs <= _bestRttUs * 1.2 || !_haveOffset)
+                                {
+                                    if (rttUs < _bestRttUs) _bestRttUs = rttUs;
+                                    _clockOffsetUs = hostNow - (t0 + (long)(rttUs / 2));
+                                    _haveOffset = true;
+                                }
+                            }
+                            break;
+                        case MsgType.Cursor: _viewer.OnHostCursor(f.Payload); break;
+                        case MsgType.Audio: _audio.Feed(f.Payload); break;
+                        case MsgType.HostState:
+                            HostState = f.Json<HostStateMsg>();
+                            Changed?.Invoke();
                             break;
                         case MsgType.Bye:
                             reason = f.Json<ByeMsg>()?.Reason ?? "closed by host";
@@ -155,6 +193,7 @@ public sealed class ReceiverSession
         {
             try { _decoder?.Dispose(); } catch { }
             _decoder = null;
+            try { _audio.Dispose(); } catch { }
             Close(reason, byHost);
         }
     }
@@ -167,6 +206,7 @@ public sealed class ReceiverSession
         _decoder = null;
         _decoder = new MfDecoder(_d3d, cfg.Mime, cfg.Width, cfg.Height, cfg.Fps);
         _renderer!.SetVideoSize(cfg.Width, cfg.Height);
+        _viewer.VideoWidth = cfg.Width;
         _waitKeyframe = true;
         RequestKeyframe();
         Log.Info($"Receiving {cfg.Mime} {cfg.Width}x{cfg.Height}@{cfg.Fps} ({cfg.Mode}) from {HostName}");
@@ -188,6 +228,11 @@ public sealed class ReceiverSession
             {
                 _renderer!.Present(tex, slice);
                 Interlocked.Increment(ref _framesWindow);
+                if (_haveOffset)
+                {
+                    double lat = (NowUs() + _clockOffsetUs - pts) / 1000.0;
+                    if (lat is > 0 and < 2000) _latencyAvg = _latencyAvg == 0 ? lat : _latencyAvg * 0.9 + lat * 0.1;
+                }
             });
             double ms = (_clock.ElapsedTicks - t0) * 1000.0 / Stopwatch.Frequency;
             _decodeMsAvg = _decodeMsAvg * 0.9 + ms * 0.1;
@@ -203,7 +248,10 @@ public sealed class ReceiverSession
 
     private void RequestKeyframe() => Send(FrameCodec.Encode(MsgType.KeyframeRequest, ReadOnlySpan<byte>.Empty));
 
-    private long NowUs() => _clock.ElapsedTicks * 1_000_000 / Stopwatch.Frequency;
+    private static long NowUs() => HostClock.NowUs();
+
+    /// <summary>Changes a setting on the PC being shown (applied to its own DualScreen settings).</summary>
+    public void SendHostSettings(HostSettingsMsg m) => Send(FrameCodec.EncodeJson(MsgType.HostSettings, m));
 
     public void Close(string reason, bool byHost)
     {

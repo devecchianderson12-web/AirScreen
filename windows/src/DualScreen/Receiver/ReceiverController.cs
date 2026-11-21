@@ -25,6 +25,9 @@ public sealed class ReceiverController : IDisposable
     private ReceiverSession? _session;
     private ViewerWindow? _viewer;
     private D3DDevice? _d3d;
+    private IntPtr _lastMonitor;
+    private int _reconnecting;
+    private volatile bool _reconnectCancelled;
 
     public BeaconListener Beacons { get; } = new();
     public ReceiverState State { get; private set; } = ReceiverState.Idle;
@@ -65,6 +68,7 @@ public sealed class ReceiverController : IDisposable
 
     private async Task<bool> RunAsync(string hostId, string name, string? code, bool lan, bool noKeyboard, IntPtr monitor)
     {
+        _lastMonitor = monitor;
         CancellationToken ct;
         lock (_gate)
         {
@@ -165,9 +169,35 @@ public sealed class ReceiverController : IDisposable
             _session = null;
         }
         CleanupViewer();
-        string? error = byHost || reason is "user" or "closed by user" ? null : "Se perdió la conexión con el otro equipo.";
+        bool lost = !byHost && reason is not ("user" or "closed by user");
+        if (lost && ActiveHostId != null && ReceiverStore.Find(ActiveHostId) is { } saved && Interlocked.Exchange(ref _reconnecting, 1) == 0)
+        {
+            _ = ReconnectAsync(saved);
+            return;
+        }
+        string? error = !lost ? null : "Se perdió la conexión con el otro equipo.";
         Set(error == null ? ReceiverState.Idle : ReceiverState.Error, byHost ? "El otro equipo terminó la transmisión" : "Sin conectar", error);
         Ended?.Invoke(error);
+    }
+
+    private async Task ReconnectAsync(SavedHost host)
+    {
+        try
+        {
+            _reconnectCancelled = false;
+            int[] delays = { 500, 1500, 3000, 5000, 8000 };
+            for (int i = 0; i < delays.Length; i++)
+            {
+                Set(ReceiverState.Connecting, $"Reconectando con {host.Name}… (intento {i + 1} de {delays.Length})");
+                await Task.Delay(delays[i]).ConfigureAwait(false);
+                if (_reconnectCancelled) return; // the user pressed Stop
+                if (State == ReceiverState.Connecting) State = ReceiverState.Idle; // RunAsync refuses to start while busy
+                if (await RunAsync(host.HostId, host.Name, null, false, host.NoKeyboard, _lastMonitor).ConfigureAwait(false)) return;
+            }
+            Set(ReceiverState.Error, "No se pudo reconectar", "Se perdió la conexión con el otro equipo.");
+            Ended?.Invoke("Se perdió la conexión con el otro equipo.");
+        }
+        finally { Interlocked.Exchange(ref _reconnecting, 0); }
     }
 
     private void CleanupViewer()
@@ -187,6 +217,7 @@ public sealed class ReceiverController : IDisposable
     public void Stop()
     {
         _cts?.Cancel();
+        if (_reconnecting != 0 && _session == null) { _reconnectCancelled = true; Set(ReceiverState.Idle, "Sin conectar"); return; }
         var s = _session;
         if (s != null) s.Close("user", false);
         else if (State == ReceiverState.Error) Set(ReceiverState.Idle, "Sin conectar");

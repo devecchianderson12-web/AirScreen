@@ -134,6 +134,11 @@
                                 </Grid>
                             </Border>
 
+                            <Border x:Name="MirrorMonitorCard" Style="{StaticResource Card}" Margin="0,8,0,0"><DockPanel>
+                                <ComboBox x:Name="MirrorMonitorBox" DockPanel.Dock="Right" SelectionChanged="MirrorMonitor_Changed"/>
+                                <StackPanel><TextBlock Text="Monitor a mostrar en modo espejo"/><TextBlock Text="Con varios monitores, elegí cuál ve el dispositivo." Style="{StaticResource CaptionText}"/></StackPanel>
+                            </DockPanel></Border>
+
                             <TextBlock Text="Imagen" Style="{StaticResource SubtitleText}"/>
                             <Border Style="{StaticResource Card}"><DockPanel>
                                 <ComboBox x:Name="ResolutionBox" DockPanel.Dock="Right" SelectionChanged="DisplaySetting_Changed"/>
@@ -256,6 +261,12 @@
                             <TextBlock Text="Equipos vinculados" Style="{StaticResource SubtitleText}"/>
                             <StackPanel x:Name="SavedHostList"/>
                             <TextBlock x:Name="NoSavedHosts" Text="Todavía no vinculaste este equipo con ninguna PC." Style="{StaticResource CaptionText}" Margin="2,4,0,0"/>
+
+                            <Border Style="{StaticResource Card}"><DockPanel>
+                                <CheckBox x:Name="ReceiverAudioToggle" DockPanel.Dock="Right" Style="{StaticResource ToggleSwitch}" Click="ReceiverAudio_Click"/>
+                                <StackPanel><TextBlock Text="Escuchar el sonido de la otra PC"/>
+                                    <TextBlock Text="El audio de la PC que transmite se reproduce en este equipo, con muy poco retraso." Style="{StaticResource CaptionText}" TextWrapping="Wrap"/></StackPanel>
+                            </DockPanel></Border>
 
                             <TextBlock Text="En esta red" Style="{StaticResource SubtitleText}"/>
                             <Border Style="{StaticResource Card}"><DockPanel>

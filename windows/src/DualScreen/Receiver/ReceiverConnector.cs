@@ -216,6 +216,7 @@ public static class ReceiverConnector
             await ssl.DisposeAsync().ConfigureAwait(false);
             throw new IOException(reason ?? ex.Message, ex);
         }
+        ssl.ReadTimeout = 8000; // the PC pings every second: 8 s of silence = dead link -> reconnect
         return (ssl, fp);
     }
 
