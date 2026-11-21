@@ -14,7 +14,7 @@
     <AssemblyName>DualScreen</AssemblyName>
     <ApplicationIcon>Assets\DualScreen.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>0.2.4</Version>
+    <Version>0.2.5</Version>
     <Product>DualScreen</Product>
     <Company>DualScreen</Company>
     <Copyright>Copyright (c) DualScreen contributors</Copyright>

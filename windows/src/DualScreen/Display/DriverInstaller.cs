@@ -2,6 +2,7 @@ using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -19,12 +20,70 @@ namespace DualScreen.Display;
 /// package is embedded in the exe, extracted on demand and installed in an elevated child process
 /// ("DualScreen.exe --driver install"), with a single UAC prompt. Uninstall is symmetrical.
 /// </summary>
+public enum DriverStatus { NotInstalled, Ok, Outdated, Failed, AccessDenied }
+
 public static class DriverInstaller
 {
     private static readonly Guid DisplayClassGuid = new("4d36e968-e325-11ce-bfc1-08002be10318");
 
     public static bool HasEmbeddedPackage =>
         Assembly.GetExecutingAssembly().GetManifestResourceNames().Any(n => n.EndsWith("DualScreenIdd.inf", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>DriverVer of the package embedded in this exe (e.g. "20.25.47.321"), or null.</summary>
+    public static string? EmbeddedVersion { get; } = ReadEmbeddedVersion();
+
+    private static string? ReadEmbeddedVersion()
+    {
+        try
+        {
+            var asm = Assembly.GetExecutingAssembly();
+            string? name = asm.GetManifestResourceNames().FirstOrDefault(n => n.EndsWith("DualScreenIdd.inf", StringComparison.OrdinalIgnoreCase));
+            if (name == null) return null;
+            using var r = new StreamReader(asm.GetManifestResourceStream(name)!);
+            for (string? line; (line = r.ReadLine()) != null;)
+            {
+                var m = Regex.Match(line, @"^\s*DriverVer\s*=\s*[^,]*,\s*([0-9.]+)", RegexOptions.IgnoreCase);
+                if (m.Success) return m.Groups[1].Value;
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    /// <summary>Version of the DualScreen driver bound to the device (readable without admin rights).</summary>
+    public static string? InstalledVersion()
+    {
+        try
+        {
+            using var cls = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}");
+            if (cls == null) return null;
+            foreach (var sub in cls.GetSubKeyNames())
+            {
+                try
+                {
+                    using var k = cls.OpenSubKey(sub);
+                    if (k?.GetValue("MatchingDeviceId") is string id && id.Equals(DriverClient.HardwareId, StringComparison.OrdinalIgnoreCase))
+                        return k.GetValue("DriverVersion") as string;
+                }
+                catch { /* some driver keys are not readable */ }
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    /// <summary>Not installed / working / older than the one in this exe / stopped by Windows / no permission.</summary>
+    public static DriverStatus GetStatus()
+    {
+        bool node = DeviceExists();
+        bool iface = DriverClient.IsInstalled();
+        if (!node && !iface) return DriverStatus.NotInstalled;
+        if (!iface) return DriverStatus.Failed; // device present but not started (e.g. stopped after crashes)
+        if (DriverClient.AccessDenied) return DriverStatus.AccessDenied;
+        string? installed = InstalledVersion();
+        if (EmbeddedVersion != null && installed != null && installed != EmbeddedVersion) return DriverStatus.Outdated;
+        return DriverStatus.Ok;
+    }
 
     /// <summary>Runs the elevated helper. Returns (success, message).</summary>
     public static (bool ok, string message) RunElevated(string action)
@@ -145,6 +204,11 @@ public static class DriverInstaller
             int err = Marshal.GetLastWin32Error();
             throw new InvalidOperationException($"No se pudo instalar el controlador (error 0x{err:X}). {ExplainWin32(err)}");
         }
+        // Keep only the package just installed: older DualScreen packages stay in the driver store otherwise.
+        var current = Regex.Match(output, @"oem\d+\.inf", RegexOptions.IgnoreCase);
+        foreach (string published in PublishedDualScreenPackages())
+            if (!current.Success || !published.Equals(current.Value, StringComparison.OrdinalIgnoreCase))
+                RunTool("pnputil.exe", $"/delete-driver {published}");
         Log.Info("Driver installed" + (reboot ? " (reboot required)" : ""));
         return reboot ? "Controlador instalado. Reinicia Windows para completar." : "Controlador instalado correctamente.";
     }
@@ -191,16 +255,29 @@ public static class DriverInstaller
             if (Native.DiUninstallDevice(IntPtr.Zero, set, ref dev, 0, out _)) removed++;
         });
         // Remove the package(s) from the driver store.
-        var (_, list) = RunTool("pnputil.exe", "/enum-drivers");
-        foreach (Match m in Regex.Matches(list, @"(oem\d+\.inf)[\s\S]*?dualscreenidd\.inf", RegexOptions.IgnoreCase))
-        {
-            string published = m.Groups[1].Value;
-            // Only delete if the same block really refers to our original INF.
+        foreach (string published in PublishedDualScreenPackages())
             RunTool("pnputil.exe", $"/delete-driver {published} /uninstall /force");
-        }
         RemovePackageCertificates();
         Log.Info($"Driver uninstalled ({removed} device nodes)");
         return "Controlador desinstalado.";
+    }
+
+    /// <summary>
+    /// Published names (oemNN.inf) of DualScreen packages in the driver store. pnputil prints one block per
+    /// package separated by blank lines; only blocks whose original name is dualscreenidd.inf are taken
+    /// (matching across blocks could delete an unrelated driver).
+    /// </summary>
+    private static List<string> PublishedDualScreenPackages()
+    {
+        var (_, list) = RunTool("pnputil.exe", "/enum-drivers");
+        var result = new List<string>();
+        foreach (string block in Regex.Split(list.Replace("\r", ""), @"\n\s*\n"))
+        {
+            if (!block.Contains("dualscreenidd.inf", StringComparison.OrdinalIgnoreCase)) continue;
+            var m = Regex.Match(block, @"oem\d+\.inf", RegexOptions.IgnoreCase);
+            if (m.Success) result.Add(m.Value);
+        }
+        return result;
     }
 
     private static bool DeviceExists()

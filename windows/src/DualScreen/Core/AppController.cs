@@ -302,9 +302,12 @@ public sealed class AppController : IDisposable
                 if (!_driverHintShown)
                 {
                     _driverHintShown = true;
-                    Notify?.Invoke("Modo espejo", DriverClient.AccessDenied
-                        ? "Se usa el modo espejo: el controlador necesita una reparación. Abrí Configuración → Controlador → Reparar."
-                        : "Se usa el modo espejo. Para usar la pantalla extendida, instala el controlador en Configuración.");
+                    Notify?.Invoke("Modo espejo", DriverInstaller.GetStatus() switch
+                    {
+                        DriverStatus.AccessDenied => "Se usa el modo espejo: el controlador necesita una reparación (Configuración → Controlador → Reparar).",
+                        DriverStatus.Failed or DriverStatus.Outdated => "Se usa el modo espejo: el controlador está detenido o desactualizado (Configuración → Controlador → Actualizar).",
+                        _ => "Se usa el modo espejo. Para usar la pantalla extendida, instala el controlador en Configuración.",
+                    });
                 }
             }
             EffectiveMode = displayMode;

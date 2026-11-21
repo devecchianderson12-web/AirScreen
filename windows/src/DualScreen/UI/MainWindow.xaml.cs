@@ -388,7 +388,20 @@ public partial class MainWindow : Window
             CodecHint.Text = caps == null ? "Se elige según el hardware de ambos dispositivos."
                 : "Disponibles en ambos: " + string.Join(", ", caps.Codecs.Select(c => c switch { "video/hevc" => "HEVC", "video/av01" => "AV1", _ => "H.264" }));
             bool driver = _app.DriverInstalled;
-            DriverWarning.Visibility = s.Mode == DisplayMode.Extended && (!driver || DriverClient.AccessDenied) ? Visibility.Visible : Visibility.Collapsed;
+            var dst = DriverInstaller.GetStatus();
+            DriverWarning.Visibility = s.Mode == DisplayMode.Extended && dst != Display.DriverStatus.Ok ? Visibility.Visible : Visibility.Collapsed;
+            DriverWarningText.Text = dst switch
+            {
+                Display.DriverStatus.Outdated or Display.DriverStatus.Failed => "El controlador de pantalla virtual está desactualizado o detenido: actualizalo para usar la pantalla extendida (un aviso de administrador).",
+                Display.DriverStatus.AccessDenied => "El controlador necesita una reparación para usar la pantalla extendida (un aviso de administrador).",
+                _ => "El modo extendido necesita el controlador de pantalla virtual (requiere permisos de administrador una sola vez).",
+            };
+            DriverWarningButton.Content = dst switch
+            {
+                Display.DriverStatus.Outdated or Display.DriverStatus.Failed => "Actualizar controlador",
+                Display.DriverStatus.AccessDenied => "Reparar controlador",
+                _ => "Instalar controlador",
+            };
         }
         finally { _loading = wasLoading; }
     }
@@ -501,18 +514,36 @@ public partial class MainWindow : Window
 
     private void RefreshSettingsStatus()
     {
-        bool installed = _app.DriverInstalled;
-        bool repair = installed && DriverClient.AccessDenied;
-        DriverStatus.Text = repair ? "El controlador necesita una reparación" : installed ? "Controlador instalado y en funcionamiento" : "Controlador no instalado";
-        DriverDetail.Text = repair
-            ? "Está instalado pero DualScreen no tiene permiso para usarlo. «Reparar» lo corrige (un aviso de administrador)."
-            : installed
+        var st = DriverInstaller.GetStatus();
+        bool installed = st != Display.DriverStatus.NotInstalled;
+        bool ok = st == Display.DriverStatus.Ok;
+        DriverStatus.Text = st switch
+        {
+            Display.DriverStatus.Ok => "Controlador instalado y en funcionamiento",
+            Display.DriverStatus.Outdated => "Hay una versión nueva del controlador",
+            Display.DriverStatus.Failed => "El controlador está detenido",
+            Display.DriverStatus.AccessDenied => "El controlador necesita una reparación",
+            _ => "Controlador no instalado",
+        };
+        DriverDetail.Text = st switch
+        {
+            Display.DriverStatus.Outdated => $"Instalado {DriverInstaller.InstalledVersion()}, incluido en esta versión {DriverInstaller.EmbeddedVersion}. «Actualizar» lo reemplaza (un aviso de administrador).",
+            Display.DriverStatus.Failed => "Windows lo detuvo (por ejemplo tras un error de una versión anterior). «Actualizar» instala el incluido y lo reinicia.",
+            Display.DriverStatus.AccessDenied => "Está instalado pero DualScreen no tiene permiso para usarlo. «Reparar» lo corrige (un aviso de administrador).",
+            _ => "",
+        };
+        if (DriverDetail.Text.Length == 0) DriverDetail.Text = installed
             ? "Windows puede crear el monitor virtual DualScreen (Configuración → Sistema → Pantalla)."
             : DriverInstaller.HasEmbeddedPackage
                 ? "Necesario para el modo extendido. Se pedirá permiso de administrador una sola vez y se instalará también el certificado del controlador DualScreen."
                 : "Esta compilación no incluye el paquete del controlador (consulta docs/DRIVER.md).";
-        DriverInstallButton.Visibility = installed && !repair ? Visibility.Collapsed : Visibility.Visible;
-        DriverInstallButton.Content = repair ? "Reparar" : "Instalar";
+        DriverInstallButton.Visibility = ok ? Visibility.Collapsed : Visibility.Visible;
+        DriverInstallButton.Content = st switch
+        {
+            Display.DriverStatus.AccessDenied => "Reparar",
+            Display.DriverStatus.Outdated or Display.DriverStatus.Failed => "Actualizar",
+            _ => "Instalar",
+        };
         DriverUninstallButton.Visibility = installed ? Visibility.Visible : Visibility.Collapsed;
         DataPath.Text = AppPaths.DataDir;
         AboutText.Text = $"DualScreen {AppInfo.VersionString} · Protocolo v{AppInfo.ProtocolVersion} · ID del PC {_app.Identity.HostId}";

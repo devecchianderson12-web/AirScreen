@@ -64,6 +64,11 @@ public partial class App : Application
         else if (Array.IndexOf(Args, "--post-update") >= 0)
             _tray.ShowNotification("DualScreen actualizado", $"Ahora usas la versión {AppInfo.VersionString}.");
 
+        var driverStatus = Display.DriverInstaller.GetStatus();
+        if (driverStatus is Display.DriverStatus.Outdated or Display.DriverStatus.Failed or Display.DriverStatus.AccessDenied)
+            _tray.ShowNotification("Actualizá el controlador",
+                "El controlador de pantalla virtual está desactualizado o detenido; sin él solo funciona el modo espejo. Hacé clic para actualizarlo.", "settings");
+
         // Starts in the tray ("Iniciar minimizado", default) or with the window open.
         if (!SettingsStore.Current.StartMinimized) ShowMainWindow();
         Log.Info($"DualScreen {AppInfo.VersionString} started (data: {AppPaths.DataDir})");

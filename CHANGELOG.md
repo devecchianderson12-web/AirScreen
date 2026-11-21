@@ -2,6 +2,12 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones [SemVer](https://semver.org/lang/es/).
 
+## [0.2.5] - 2026-11-21
+
+### Corregido
+- La pantalla extendida no se usaba después de actualizar: seguía instalado el controlador anterior (el que fallaba) y Windows lo había detenido, así que DualScreen pasaba a modo espejo sin decir por qué. Ahora DualScreen detecta si el controlador instalado es más viejo que el incluido o está detenido, avisa al iniciar y muestra **Actualizar controlador** (Pantalla y Configuración). Al actualizar se reinicia el dispositivo y se borran los paquetes viejos del almacén de controladores.
+- La desinstalación solo borra paquetes de DualScreen (antes podía tomar el nombre de un paquete vecino).
+
 ## [0.2.4] - 2026-11-21
 
 ### Corregido
