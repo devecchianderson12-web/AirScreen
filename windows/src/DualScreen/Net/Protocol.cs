@@ -23,6 +23,7 @@ public enum MsgType : byte
     KeyframeRequest = 0x08,// client -> host, empty
     ClientSettings = 0x09, // client -> host, JSON ClientSettingsMsg
     Bye = 0x0A,            // either way, JSON ByeMsg
+    Input = 0x0B,          // client -> host, binary input event (see InputCodec)
 }
 
 [Flags]
@@ -55,6 +56,10 @@ public sealed class DeviceCaps
     public List<CodecCaps> Codecs { get; set; } = new();
     public string Abi { get; set; } = "";
     public int SdkInt { get; set; }
+    /// <summary>"android" (absent in older clients) or "windows".</summary>
+    public string? Platform { get; set; }
+    /// <summary>Input devices the client forwards: "touch", "pen", "mouse", "keyboard". Null = none.</summary>
+    public List<string>? Input { get; set; }
 }
 
 public sealed class AuthBlock
@@ -178,6 +183,24 @@ public static class FrameCodec
         Span<byte> p = stackalloc byte[8];
         BinaryPrimitives.WriteInt64BigEndian(p, value);
         return Encode(type, p);
+    }
+
+    /// <summary>Blocking read for dedicated receive threads (lower overhead than the async path).</summary>
+    public static Frame Read(Stream s)
+    {
+        Span<byte> header = stackalloc byte[HeaderSize];
+        s.ReadExactly(header);
+        var type = (MsgType)header[0];
+        int len = BinaryPrimitives.ReadInt32BigEndian(header[1..]);
+        if (len < 0 || len > MaxPayload) throw new InvalidDataException($"Invalid frame length {len}");
+        byte[] buf = ArrayPool<byte>.Shared.Rent(Math.Max(len, 1));
+        try { s.ReadExactly(buf, 0, len); }
+        catch
+        {
+            ArrayPool<byte>.Shared.Return(buf);
+            throw;
+        }
+        return new Frame(type, buf, len, true);
     }
 
     public static async Task<Frame> ReadAsync(Stream s, CancellationToken ct)

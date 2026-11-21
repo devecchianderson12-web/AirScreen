@@ -46,6 +46,13 @@ public partial class App : Application
             _tray.ShowNotification("Actualización disponible",
                 $"DualScreen {rel.Version} está disponible (tienes {AppInfo.VersionString}). Haz clic para actualizar.", "updates"));
         _controller.StateChanged += () => Dispatcher.BeginInvoke(() => _tray?.UpdateState());
+        // When the full-screen viewer closes (Esc, the other PC stopped, or an error) bring the app back.
+        Receiver.ReceiverController.Instance.Ended += error => Dispatcher.BeginInvoke(() =>
+        {
+            _tray?.UpdateState();
+            if (error != null || _window != null) ShowMainWindow("receive");
+        });
+        Receiver.ReceiverController.Instance.Changed += () => Dispatcher.BeginInvoke(() => _tray?.UpdateState());
 
         // A second launch of DualScreen.exe just asks this instance to show its window.
         if (_showSignal != null)
@@ -98,6 +105,7 @@ public partial class App : Application
         _window?.Close();
         _tray?.Dispose();
         _showWait?.Unregister(null);
+        try { Receiver.ReceiverController.Instance.Dispose(); } catch (Exception ex) { Log.Error("Receiver shutdown error", ex); }
         try { _controller?.Dispose(); } catch (Exception ex) { Log.Error("Shutdown error", ex); }
         Log.Info("Shutdown complete");
         Log.Flush();

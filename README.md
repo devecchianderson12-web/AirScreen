@@ -1,7 +1,7 @@
 <p align="center"><img src="assets/icon/dualscreen-512.png" width="128" alt="DualScreen"></p>
 
 <h1 align="center">DualScreen</h1>
-<p align="center">Usa tu teléfono Android como <b>segundo monitor inalámbrico real</b> de Windows 11/10.</p>
+<p align="center">Usa tu teléfono Android <b>u otra PC / notebook</b> como <b>segundo monitor inalámbrico real</b> de Windows 11/10.</p>
 
 DualScreen crea un monitor virtual que Windows trata como una pantalla física (aparece en
 **Configuración → Sistema → Pantalla**, se puede extender, reordenar, rotar y arrastrar ventanas hacia él)
@@ -24,6 +24,8 @@ otra red.
 3. Para el **modo extendido**, abre *Configuración → Controlador de pantalla virtual → Instalar* (un único aviso de
    administrador; ver [docs/DRIVER.md](docs/DRIVER.md) sobre la firma del controlador). El **modo espejo** funciona sin controlador.
 4. Instala la APK, ábrela y pulsa **Escanear QR** apuntando al código de *Conexión* en el PC.
+5. ¿Otra PC o notebook como monitor? Ejecuta `DualScreen.exe` también en ella → **Usar como monitor**, elige el PC y escribe
+   su código. Queda guardado y luego se inicia con un clic; su pantalla táctil, lápiz, mouse y teclado controlan el PC.
 
 Guía completa: [docs/USAGE.md](docs/USAGE.md).
 

@@ -22,6 +22,18 @@
 - **Actualizaciones**: versión actual y disponible, *Actualizar ahora*, *Posponer*.
 - **Configuración**: inicio con Windows, notificaciones, red local/remota, controlador, registros.
 
+### Usar como monitor (otra PC o notebook como segunda pantalla)
+1. En la PC que transmite: abrí DualScreen → **Conexión** para ver el código de 6 dígitos.
+2. En la notebook: DualScreen → **Usar como monitor**, elegí la PC en la lista, escribí el código y pulsá **Vincular e iniciar**.
+   La primera vez Windows puede preguntar si permite DualScreen en redes privadas: aceptá (el receptor recibe la conexión).
+3. Queda guardada en *Equipos vinculados*: la próxima vez, **Iniciar** (o el menú del icono de notificaciones) y listo.
+4. La pantalla queda completa, sin barras ni menús. La pantalla táctil, el lápiz, el mouse y el teclado de la notebook
+   controlan la PC emisora (se puede desactivar en su Configuración).
+5. Salir: **Esc** o **Alt+F4** cierran. La **tecla Windows**, **Alt+Tab**, **Ctrl+Esc** o **Ctrl+Shift+Esc** muestran la barra
+   de tareas y minimizan DualScreen sin cortar la conexión.
+6. **No molestar** (interruptor junto a *Iniciar*): el teclado queda totalmente desactivado. Para salir mantené presionada
+   3 segundos la esquina superior izquierda (dedo, lápiz o mouse), usá Ctrl+Alt+Supr o desconectá desde la PC emisora.
+
 ## Android
 1. Instala `DualScreen.apk` (permite "instalar apps desconocidas" para tu navegador/gestor de archivos).
 2. Abre DualScreen → **Escanear QR** (o *Introducir código* si el PC aparece en "PCs en esta red").

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -20,6 +21,8 @@ public sealed class TrayIcon : IDisposable
     private readonly ContextMenu _menu;
     private readonly MenuItem _connectItem;
     private readonly MenuItem _disconnectItem;
+    private readonly MenuItem _receiveItem;
+    private readonly MenuItem _stopReceiveItem;
     private Window? _menuHost;
     private string? _balloonTarget;
 
@@ -48,6 +51,17 @@ public sealed class TrayIcon : IDisposable
         _disconnectItem = Item("Desconectar dispositivo", "", () => AppController.Instance.Disconnect());
         _menu.Items.Add(_connectItem);
         _menu.Items.Add(_disconnectItem);
+        _menu.Items.Add(new Separator());
+        // One click: show the last linked PC on this screen.
+        _receiveItem = Item("Usar como monitor", "\uE7F8", () =>
+        {
+            var last = Receiver.ReceiverStore.Hosts.FirstOrDefault();
+            if (last == null) _app.ShowMainWindow("receive");
+            else _ = Receiver.ReceiverController.Instance.StartAsync(last, IntPtr.Zero);
+        });
+        _stopReceiveItem = Item("Dejar de usar como monitor", "\uE71A", () => Receiver.ReceiverController.Instance.Stop());
+        _menu.Items.Add(_receiveItem);
+        _menu.Items.Add(_stopReceiveItem);
         _menu.Items.Add(new Separator());
         _menu.Items.Add(Item("Buscar actualizaciones", "", () =>
         {
@@ -80,6 +94,11 @@ public sealed class TrayIcon : IDisposable
         bool connected = c.Session != null && !c.Session.IsClosed;
         _connectItem.IsEnabled = !connected;
         _disconnectItem.IsEnabled = connected;
+        var rx = Receiver.ReceiverController.Instance;
+        var last = Receiver.ReceiverStore.Hosts.FirstOrDefault();
+        _receiveItem.Header = last != null ? $"Usar como monitor de {last.Name}" : "Usar como monitor de otra PC…";
+        _receiveItem.IsEnabled = !rx.Busy;
+        _stopReceiveItem.Visibility = rx.Busy ? Visibility.Visible : Visibility.Collapsed;
         string text = connected ? $"DualScreen — conectado a {c.Session!.Hello.DeviceName}" : "DualScreen — esperando un teléfono";
         _icon.Text = text.Length > 63 ? text[..63] : text;
     }

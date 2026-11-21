@@ -2,6 +2,18 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones [SemVer](https://semver.org/lang/es/).
 
+## [0.2.0] - 2026-11-21
+
+### Añadido
+- **Usar como monitor** (nueva sección en Windows): una PC o notebook con DualScreen puede ser el segundo monitor de otra PC. DualScreen es a la vez emisor y receptor.
+- Vinculación con el código de 6 dígitos de la otra PC; queda guardada y después se inicia con **un clic** (también desde el menú del icono de notificaciones).
+- Pantalla completa real, sin barras ni menús: decodificación por hardware (DXVA, H.264/HEVC) directa a la GPU, presentación inmediata con *flip* y *tearing* permitido, sin búfer intermedio.
+- La pantalla táctil (multitáctil), el lápiz (presión, botón, borrador), el mouse y el teclado del receptor controlan la PC emisora.
+- Salida solo por teclado: Esc / Alt+F4 cierran; tecla Windows, Alt+Tab, Ctrl+Esc o Ctrl+Shift+Esc muestran la barra de tareas y minimizan sin cortar la conexión. Los gestos táctiles desde los bordes están desactivados.
+- Modo **No molestar**: desactiva todo el teclado; se sale manteniendo presionada 3 s la esquina superior izquierda, con Ctrl+Alt+Supr o desde la otra PC.
+- La PC emisora se anuncia en la red local (solo envía, sin aviso del firewall) y se conecta al receptor; también funciona con la conexión directa o pidiendo la conexión por el broker MQTT.
+- Configuración: «Anunciar este PC en la red local» y «Permitir control desde el monitor vinculado».
+
 ## [0.1.8] - 2026-11-19
 
 ### Corregido

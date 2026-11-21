@@ -49,6 +49,24 @@ Longitud máxima: 16 MiB.
 | 0x08 | KEYFRAME_REQUEST | teléfono → PC | vacío |
 | 0x09 | CLIENT_SETTINGS | teléfono → PC | JSON `{quality}` (`auto,maximum,high,balanced,saver`) |
 | 0x0A | BYE | ambas | JSON `{reason}` |
+| 0x0B | INPUT | receptor → PC | evento binario de entrada (ver abajo) |
+
+### INPUT (receptores con pantalla táctil, lápiz, mouse o teclado)
+
+Big-endian. `x`, `y` normalizados 0..65535 sobre el fotograma de vídeo (el PC deshace el *letterbox* del modo espejo).
+El receptor declara lo que envía en `caps.input` (`["touch","pen","mouse","keyboard"]`) y `caps.platform` (`"windows"`).
+
+| Primer byte | Evento | Resto |
+|---|---|---|
+| 1 | Toque | `id:u8` `estado:u8` (0 abajo, 1 mueve, 2 arriba, 3 cancelado) `x:u16` `y:u16` `presión:u16` (0..1024) |
+| 2 | Lápiz | `estado:u8` (0 flota, 1 abajo, 2 mueve, 3 arriba, 4 sale) `x` `y` `presión` `botones:u8` (1 lateral, 2 invertido, 4 borrador) |
+| 3 | Mouse: mover | `x` `y` |
+| 4 | Mouse: botón | `botón:u8` (0 izq, 1 der, 2 medio, 3 X1, 4 X2) `abajo:u8` `x` `y` |
+| 5 | Rueda | `horizontal:u8` `delta:i16` |
+| 6 | Tecla | `scancode:u16` `flags:u8` (bit0 soltar, bit1 extendida) |
+| 7 | Soltar todo | — (al minimizar o salir: nada queda presionado en el PC) |
+
+El PC solo los aplica si «Permitir control desde el monitor vinculado» está activo, y únicamente sobre el monitor transmitido.
 
 ### HELLO
 
@@ -82,6 +100,16 @@ del Android Keystore.
 
 Errores de `WELCOME` (`ok:false`): `bad-code`, `code-expired`, `too-many-attempts`, `not-paired`, `busy`,
 `protocol-mismatch`, `malformed`.
+
+## Vinculación PC ↔ PC en la red local (sin reglas de firewall en el emisor)
+
+1. El emisor difunde cada 1,5 s por UDP al puerto `47802` (solo salida):
+   `{"magic":"DSBEACON1","hostId","name","fp","port","version","proto","s"}` (`port` = 0 si no acepta conexiones entrantes; `s` = señalización).
+2. El receptor (escucha UDP `47802` solo mientras se usa *Usar como monitor*) abre un puerto TCP aleatorio y responde por unicast al
+   origen del anuncio: `{"magic":"DSDIAL1","hostId","addrs":[…],"port"}`. Windows permite por defecto la respuesta unicast a una difusión.
+   En paralelo envía la misma petición (`kind:"dial"`) por el broker MQTT.
+3. El emisor (como mucho una vez por segundo, solo direcciones privadas) se conecta al receptor y actúa como servidor TLS; el receptor
+   comprueba la huella fijada y que `hostId` = SHA‑256(SPKI) del certificado. Luego `HELLO`/`WELCOME` como cualquier cliente.
 
 ## Negociación
 

@@ -35,6 +35,10 @@ public sealed class AppSettings
     /// </summary>
     public bool LanEnabled { get; set; } = false;
     public bool RemoteEnabled { get; set; } = true;
+    /// <summary>Broadcast a small UDP beacon so other PCs can link to this one as a monitor (outbound only, no firewall prompt).</summary>
+    public bool AnnounceOnLan { get; set; } = true;
+    /// <summary>Let a linked receiver control this PC with its touchscreen, pen, mouse and keyboard.</summary>
+    public bool AllowRemoteInput { get; set; } = true;
     public string SignalingUrl { get; set; } = "";
     public string StunUrls { get; set; } = "stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302";
     /// <summary>Overrides the build's TURN credentials endpoint (empty = use dualscreen.repo.json).</summary>

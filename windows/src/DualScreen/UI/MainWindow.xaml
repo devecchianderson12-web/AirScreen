@@ -41,6 +41,7 @@
                 <RadioButton x:Name="NavHome" Style="{StaticResource NavItem}" Tag="&#xE80F;" Content="Inicio" IsChecked="True" Checked="Nav_Checked"/>
                 <RadioButton x:Name="NavDisplay" Style="{StaticResource NavItem}" Tag="&#xE7F4;" Content="Pantalla" Checked="Nav_Checked"/>
                 <RadioButton x:Name="NavConnection" Style="{StaticResource NavItem}" Tag="&#xE71B;" Content="Conexión" Checked="Nav_Checked"/>
+                <RadioButton x:Name="NavReceive" Style="{StaticResource NavItem}" Tag="&#xE7F8;" Content="Usar como monitor" Checked="Nav_Checked"/>
                 <RadioButton x:Name="NavUpdates" Style="{StaticResource NavItem}" Tag="&#xE895;" Content="Actualizaciones" Checked="Nav_Checked"/>
                 <RadioButton x:Name="NavSettings" Style="{StaticResource NavItem}" Tag="&#xE713;" Content="Configuración" Checked="Nav_Checked"/>
             </StackPanel>
@@ -200,7 +201,8 @@
                                         <TextBlock Text="Código de emparejamiento" Style="{StaticResource CaptionText}"/>
                                         <TextBlock x:Name="PairCode" Text="— — —" FontFamily="{StaticResource DisplayFont}" FontSize="44" FontWeight="SemiBold" Margin="0,2,0,0"/>
                                         <TextBlock x:Name="PairExpiry" Style="{StaticResource CaptionText}"/>
-                                        <TextBlock Text="Escanea el QR desde la app de Android (recomendado: verifica la identidad del PC) o escribe el código." Style="{StaticResource CaptionText}" Margin="0,12,0,12"/>
+                                        <TextBlock Text="Escanea el QR desde la app de Android (recomendado: verifica la identidad del PC) o escribe el código." Style="{StaticResource CaptionText}" Margin="0,12,0,4" TextWrapping="Wrap"/>
+                                        <TextBlock Text="¿Otra PC o notebook? En ella abrí DualScreen → Usar como monitor, elegí este PC y escribí el código." Style="{StaticResource CaptionText}" Margin="0,0,0,12" TextWrapping="Wrap"/>
                                         <StackPanel Orientation="Horizontal">
                                             <Button Style="{StaticResource AccentButton}" Click="NewCode_Click">
                                                 <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE72C;" Style="{StaticResource Icon}" Foreground="Black" FontSize="14" Margin="0,0,8,0"/><TextBlock Text="Generar nuevo código" Foreground="Black"/></StackPanel>
@@ -231,6 +233,64 @@
                             <TextBlock Text="Dispositivos emparejados" Style="{StaticResource SubtitleText}"/>
                             <StackPanel x:Name="DeviceList"/>
                             <TextBlock x:Name="NoDevices" Text="Todavía no hay dispositivos emparejados." Style="{StaticResource CaptionText}" Margin="2,4,0,0"/>
+                        </StackPanel>
+
+                        <!-- ===================== RECEIVE (use this PC as a monitor) ===================== -->
+                        <StackPanel x:Name="PageReceive" Visibility="Collapsed">
+                            <TextBlock Text="Usar como monitor" Style="{StaticResource TitleText}"/>
+                            <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="2,0,0,12"
+                                       Text="Convertí este equipo (por ejemplo una notebook) en el segundo monitor de otra PC con DualScreen. La pantalla táctil, el lápiz, el mouse y el teclado de este equipo controlan la otra PC."/>
+
+                            <Border x:Name="ReceiveStatusCard" Style="{StaticResource Card}" Visibility="Collapsed"><DockPanel>
+                                <Button x:Name="ReceiveStopButton" DockPanel.Dock="Right" Content="Detener" Click="ReceiveStop_Click" VerticalAlignment="Center"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse x:Name="ReceiveDot" Width="10" Height="10" Fill="{StaticResource WarningBrush}" Margin="0,0,12,0" VerticalAlignment="Center"/>
+                                    <StackPanel>
+                                        <TextBlock x:Name="ReceiveStatus" FontWeight="SemiBold"/>
+                                        <TextBlock x:Name="ReceiveDetail" Style="{StaticResource CaptionText}" TextWrapping="Wrap"/>
+                                        <TextBlock x:Name="ReceiveError" Foreground="{StaticResource ErrorBrush}" FontSize="12" TextWrapping="Wrap" Visibility="Collapsed"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </DockPanel></Border>
+
+                            <TextBlock Text="Equipos vinculados" Style="{StaticResource SubtitleText}"/>
+                            <StackPanel x:Name="SavedHostList"/>
+                            <TextBlock x:Name="NoSavedHosts" Text="Todavía no vinculaste este equipo con ninguna PC." Style="{StaticResource CaptionText}" Margin="2,4,0,0"/>
+
+                            <TextBlock Text="Vincularse a otro dispositivo" Style="{StaticResource SubtitleText}"/>
+                            <Border Style="{StaticResource Card}" Padding="24"><StackPanel>
+                                <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap"
+                                           Text="1. En la PC que va a transmitir, abrí DualScreen → Conexión para ver su código.   2. Elegila acá y escribí el código. Queda guardada: la próxima vez se inicia con un clic."/>
+                                <DockPanel Margin="0,16,0,0">
+                                    <TextBlock Text="Equipo" Width="90" VerticalAlignment="Center"/>
+                                    <ComboBox x:Name="SeenHostBox" MinWidth="280" HorizontalAlignment="Left"/>
+                                </DockPanel>
+                                <TextBlock x:Name="SeenHint" Style="{StaticResource CaptionText}" Margin="90,6,0,0" TextWrapping="Wrap"/>
+                                <DockPanel Margin="0,12,0,0">
+                                    <TextBlock Text="Código" Width="90" VerticalAlignment="Center"/>
+                                    <TextBox x:Name="PairCodeBox" Width="160" MaxLength="7" FontSize="18" HorizontalAlignment="Left"/>
+                                </DockPanel>
+                                <DockPanel Margin="0,16,0,0">
+                                    <CheckBox x:Name="PairNoKeyboard" DockPanel.Dock="Right" Style="{StaticResource ToggleSwitch}"/>
+                                    <StackPanel><TextBlock Text="No molestar: desactivar el teclado"/>
+                                        <TextBlock Text="Ninguna tecla sale de la pantalla ni llega a la otra PC. Para salir: mantené presionada 3 segundos la esquina superior izquierda." Style="{StaticResource CaptionText}" TextWrapping="Wrap"/></StackPanel>
+                                </DockPanel>
+                                <Button x:Name="PairButton" Style="{StaticResource AccentButton}" Click="Pair_Click" HorizontalAlignment="Left" Margin="0,16,0,0">
+                                    <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE71B;" Style="{StaticResource Icon}" Foreground="Black" FontSize="14" Margin="0,0,8,0"/><TextBlock Text="Vincular e iniciar" Foreground="Black"/></StackPanel>
+                                </Button>
+                            </StackPanel></Border>
+
+                            <TextBlock Text="Cómo salir de la pantalla completa" Style="{StaticResource SubtitleText}"/>
+                            <Border Style="{StaticResource Card}"><StackPanel>
+                                <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap"
+                                           Text="No hay barras ni menús: la pantalla muestra solo la otra PC."/>
+                                <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,8,0,0"
+                                           Text="• Esc o Alt+F4: cierra la pantalla y termina la conexión."/>
+                                <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                           Text="• Tecla Windows, Alt+Tab, Ctrl+Esc o Ctrl+Shift+Esc: aparece la barra de tareas y DualScreen se minimiza sin cortar la conexión (volvé con un clic en la barra de tareas)."/>
+                                <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                           Text="• Con «No molestar»: mantené presionada 3 segundos la esquina superior izquierda (dedo, lápiz o mouse), usá Ctrl+Alt+Supr o desconectá desde la otra PC."/>
+                            </StackPanel></Border>
                         </StackPanel>
 
                         <!-- ===================== UPDATES ===================== -->
@@ -276,6 +336,10 @@
                                 <TextBlock Text="Mostrar notificaciones" VerticalAlignment="Center"/>
                             </DockPanel></Border>
                             <Border Style="{StaticResource Card}"><DockPanel>
+                                <CheckBox x:Name="RemoteInputToggle" DockPanel.Dock="Right" Style="{StaticResource ToggleSwitch}" Click="RemoteInput_Click"/>
+                                <StackPanel><TextBlock Text="Permitir control desde el monitor vinculado"/><TextBlock Text="La pantalla táctil, el lápiz, el mouse y el teclado del equipo que muestra este PC lo controlan." Style="{StaticResource CaptionText}"/></StackPanel>
+                            </DockPanel></Border>
+                            <Border Style="{StaticResource Card}"><DockPanel>
                                 <TextBox x:Name="HostNameBox" DockPanel.Dock="Right" Width="240" LostFocus="HostName_LostFocus"/>
                                 <StackPanel><TextBlock Text="Nombre de este PC"/><TextBlock Text="Así aparece en el teléfono." Style="{StaticResource CaptionText}"/></StackPanel>
                             </DockPanel></Border>
@@ -284,6 +348,10 @@
                             <Border Style="{StaticResource Card}"><DockPanel>
                                 <CheckBox x:Name="LanToggle" DockPanel.Dock="Right" Style="{StaticResource ToggleSwitch}" Click="Network_Changed"/>
                                 <StackPanel><TextBlock Text="Aceptar conexiones entrantes por Wi-Fi / LAN"/><TextBlock Text="Normalmente no hace falta: el PC se conecta al teléfono. Actívalo solo sin Internet (Windows pedirá permiso del firewall)." Style="{StaticResource CaptionText}"/></StackPanel>
+                            </DockPanel></Border>
+                            <Border Style="{StaticResource Card}"><DockPanel>
+                                <CheckBox x:Name="AnnounceToggle" DockPanel.Dock="Right" Style="{StaticResource ToggleSwitch}" Click="Network_Changed"/>
+                                <StackPanel><TextBlock Text="Anunciar este PC en la red local"/><TextBlock Text="Permite que otra PC o notebook lo encuentre y se vincule como monitor. Solo envía datos (sin aviso del firewall)." Style="{StaticResource CaptionText}"/></StackPanel>
                             </DockPanel></Border>
                             <Border Style="{StaticResource Card}"><DockPanel>
                                 <TextBox x:Name="PortBox" DockPanel.Dock="Right" Width="120" LostFocus="Network_Changed"/>

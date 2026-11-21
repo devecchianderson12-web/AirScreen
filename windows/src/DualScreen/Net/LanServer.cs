@@ -79,7 +79,7 @@ public sealed class LanServer : IDisposable
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
                 await client.ConnectAsync(addr, port, cts.Token).ConfigureAwait(false);
                 Log.Info($"Reverse LAN connection to {addr}:{port}");
-                _ = HandleClient(client, CancellationToken.None, "LAN (TLS/TCP, PC → teléfono)");
+                _ = HandleClient(client, CancellationToken.None, "LAN (TLS/TCP, conexión inversa)");
                 return true;
             }
             catch (Exception ex)

@@ -60,6 +60,14 @@ resuelve NAT (ICE/STUN/TURN); allí el vídeo viaja por un canal de datos fiable
 Son valores de referencia, no mediciones de este proyecto: la latencia real se muestra en vivo en ambas apps
 (RTT/2 + codificación + cola + decodificación).
 
+### Receptor Windows («Usar como monitor»)
+`ReceiverConnector` (conexión directa o inversa vía anuncio UDP / MQTT) → `ReceiverSession` (hilo dedicado: lee, decodifica y
+presenta cada fotograma en cuanto llega) → `MfDecoder` (MFT de Microsoft con DXVA, modo de baja latencia, salida NV12 en la GPU)
+→ `VideoRenderer` (`ID3D11VideoProcessor` NV12→RGB directo al *back buffer*, *flip discard*, latencia máxima 1, `Present(0)` con
+*tearing*). `ViewerWindow` es una ventana Win32 sin bordes, siempre encima, con gestos de borde desactivados; captura
+WM_POINTER (toque/lápiz), mouse y teclado y los envía como `INPUT`. En el emisor `InputInjector` los reproduce con
+`InjectTouchInput` (multitáctil real), un lápiz sintético (`InjectSyntheticPointerInput`) y `SendInput` (scancodes).
+
 ### Actualizaciones
 `UpdateService` consulta `releases/latest` de GitHub cada N horas. La descarga se verifica con
 su SHA‑256 **y** una firma ECDSA P‑256 (ambos en un comentario HTML invisible de las notas de la release) hecha en CI con una clave privada que solo existe como *secret*;

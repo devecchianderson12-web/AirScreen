@@ -14,6 +14,7 @@ using System.Windows.Threading;
 using DualScreen.Core;
 using DualScreen.Display;
 using DualScreen.Net;
+using DualScreen.Receiver;
 using DualScreen.Update;
 using QRCoder;
 
@@ -25,6 +26,9 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private bool _loading = true;
     private string? _qrPayload;
+    private readonly ReceiverController _rx = ReceiverController.Instance;
+    private string _savedSignature = "";
+    private string _seenSignature = "";
 
     public MainWindow()
     {
@@ -39,6 +43,8 @@ public partial class MainWindow : Window
         StateChanged += (_, _) => MaxButton.Content = WindowState == WindowState.Maximized ? "" : "";
         _app.StateChanged += OnAppChanged;
         _app.Updates.Changed += OnAppChanged;
+        _rx.Changed += OnAppChanged;
+        ReceiverStore.Changed += OnAppChanged;
         _timer.Tick += (_, _) => RefreshLive();
         _timer.Start();
         Closed += (_, _) =>
@@ -46,6 +52,8 @@ public partial class MainWindow : Window
             _timer.Stop();
             _app.StateChanged -= OnAppChanged;
             _app.Updates.Changed -= OnAppChanged;
+            _rx.Changed -= OnAppChanged;
+            ReceiverStore.Changed -= OnAppChanged;
         };
     }
 
@@ -59,6 +67,7 @@ public partial class MainWindow : Window
         {
             "display" => NavDisplay,
             "connection" => NavConnection,
+            "receive" => NavReceive,
             "updates" => NavUpdates,
             "settings" => NavSettings,
             _ => NavHome,
@@ -71,10 +80,12 @@ public partial class MainWindow : Window
         if (Pages == null) return;
         StackPanel show = sender == NavDisplay ? PageDisplay
             : sender == NavConnection ? PageConnection
+            : sender == NavReceive ? PageReceive
             : sender == NavUpdates ? PageUpdates
             : sender == NavSettings ? PageSettings : PageHome;
         foreach (UIElement p in Pages.Children) p.Visibility = p == show ? Visibility.Visible : Visibility.Collapsed;
         if (show == PageConnection && _app.Pairing.CurrentCode == null) _app.Pairing.NewCode();
+        if (show == PageReceive) _rx.Beacons.Start(); // listening starts only when this feature is used
         ContentScroll.ScrollToTop();
         // Windows 11-style entrance: slide up + fade.
         show.Opacity = 0;
@@ -95,13 +106,160 @@ public partial class MainWindow : Window
         RefreshConnection();
         RefreshUpdates();
         RefreshSettingsStatus();
+        RefreshReceive();
     }
 
     private void RefreshLive()
     {
         RefreshHome();
         if (PageConnection.Visibility == Visibility.Visible) RefreshPairingCountdown();
+        if (PageReceive.Visibility == Visibility.Visible) { RefreshSeenHosts(); RefreshReceiveStatus(); }
     }
+
+    // ------------------------------------------------------------------ use this PC as a monitor
+
+    private IntPtr CurrentMonitor() => MonitorFromWindow(new WindowInteropHelper(this).Handle, 2);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+
+    private void RefreshReceive()
+    {
+        RefreshReceiveStatus();
+        RefreshSeenHosts();
+        var hosts = ReceiverStore.Hosts;
+        string sig = string.Join("|", hosts.Select(h => $"{h.HostId}:{h.Name}:{h.NoKeyboard}:{h.LastUsedUtc.Ticks}")) + "|" + _rx.Busy;
+        if (sig == _savedSignature) return;
+        _savedSignature = sig;
+        SavedHostList.Children.Clear();
+        NoSavedHosts.Visibility = hosts.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var h in hosts)
+        {
+            var card = new Border { Style = (Style)FindResource("Card") };
+            var dock = new DockPanel();
+            var actions = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            var nk = new CheckBox { Style = (Style)FindResource("ToggleSwitch"), IsChecked = h.NoKeyboard, VerticalAlignment = VerticalAlignment.Center,
+                                    ToolTip = "No molestar: el teclado queda desactivado. Para salir, mantené presionada 3 s la esquina superior izquierda." };
+            string id = h.HostId;
+            nk.Click += (_, _) => ReceiverStore.Update(id, x => x.NoKeyboard = nk.IsChecked == true);
+            actions.Children.Add(new TextBlock { Text = "No molestar", Style = (Style)FindResource("CaptionText"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+            actions.Children.Add(nk);
+            var start = new Button { Style = (Style)FindResource("AccentButton"), Margin = new Thickness(16, 0, 8, 0), IsEnabled = !_rx.Busy };
+            var sp = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+            sp.Children.Add(new TextBlock { Text = "\uE768", Style = (Style)FindResource("Icon"), Foreground = Brushes.Black, FontSize = 14, Margin = new Thickness(0, 0, 8, 0) });
+            sp.Children.Add(new TextBlock { Text = "Iniciar", Foreground = Brushes.Black });
+            start.Content = sp;
+            start.Click += async (_, _) => await StartReceiving(h);
+            actions.Children.Add(start);
+            var forget = new Button { Content = "Olvidar" };
+            forget.Click += (_, _) =>
+            {
+                if (MessageBox.Show(this, $"¿Olvidar «{h.Name}»? Para volver a usarlo vas a necesitar un código nuevo.", "DualScreen",
+                        MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+                    ReceiverStore.Remove(id);
+            };
+            actions.Children.Add(forget);
+            DockPanel.SetDock(actions, Dock.Right);
+            dock.Children.Add(actions);
+            var left = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+            left.Children.Add(new TextBlock { Text = "\uE7F4", Style = (Style)FindResource("Icon"), Margin = new Thickness(0, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center });
+            var info = new StackPanel();
+            info.Children.Add(new TextBlock { Text = h.Name, FontWeight = FontWeights.SemiBold });
+            info.Children.Add(new TextBlock
+            {
+                Text = (h.LastUsedUtc > DateTime.MinValue ? $"Último uso {h.LastUsedUtc.ToLocalTime():g}" : "Vinculado") + " · un clic en Iniciar",
+                Style = (Style)FindResource("CaptionText"),
+            });
+            left.Children.Add(info);
+            dock.Children.Add(left);
+            card.Child = dock;
+            SavedHostList.Children.Add(card);
+        }
+    }
+
+    private void RefreshSeenHosts()
+    {
+        var seen = _rx.Beacons.Hosts;
+        string sig = string.Join("|", seen.Select(h => h.HostId + h.Name + h.Address));
+        if (sig != _seenSignature)
+        {
+            _seenSignature = sig;
+            string? selected = (SeenHostBox.SelectedItem as ComboBoxItem)?.Tag as string;
+            SeenHostBox.Items.Clear();
+            foreach (var h in seen)
+                SeenHostBox.Items.Add(new ComboBoxItem { Content = $"{h.Name}  ·  {h.Address}", Tag = h.HostId });
+            SeenHostBox.SelectedItem = SeenHostBox.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == selected)
+                                       ?? SeenHostBox.Items.OfType<ComboBoxItem>().FirstOrDefault();
+        }
+        SeenHint.Text = _rx.Beacons.Error != null
+            ? _rx.Beacons.Error
+            : seen.Count == 0
+                ? "Buscando PCs con DualScreen en esta red… (abrí DualScreen en la otra PC; si Windows pregunta, permití el acceso a redes privadas)."
+                : $"{seen.Count} equipo(s) encontrado(s) en la red.";
+        PairButton.IsEnabled = !_rx.Busy;
+    }
+
+    private void RefreshReceiveStatus()
+    {
+        var st = _rx.State;
+        bool show = st != ReceiverState.Idle;
+        ReceiveStatusCard.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        if (!show) return;
+        ReceiveStatus.Text = _rx.StatusText;
+        ReceiveDot.Fill = st switch
+        {
+            ReceiverState.Streaming => (Brush)FindResource("SuccessBrush"),
+            ReceiverState.Error => (Brush)FindResource("ErrorBrush"),
+            _ => (Brush)FindResource("WarningBrush"),
+        };
+        var s = _rx.Session;
+        var cfg = s?.Config;
+        ReceiveDetail.Text = s != null && cfg != null
+            ? $"{cfg.Width} × {cfg.Height} @ {cfg.Fps} Hz · {(cfg.Mime == "video/hevc" ? "HEVC" : "H.264")} · {s.Fps:0} fps · " +
+              $"{s.RecvKbps / 1000:0.0} Mbps · decodifica en {s.DecodeMs:0.0} ms · RTT {(double.IsNaN(s.RttMs) ? "—" : s.RttMs.ToString("0") + " ms")} · {s.Transport} · {s.DecoderName}"
+            : "";
+        ReceiveError.Text = _rx.LastError ?? "";
+        ReceiveError.Visibility = string.IsNullOrEmpty(_rx.LastError) ? Visibility.Collapsed : Visibility.Visible;
+        ReceiveStopButton.Content = st == ReceiverState.Error ? "Cerrar" : "Detener";
+    }
+
+    private async Task StartReceiving(SavedHost h)
+    {
+        await _rx.StartAsync(h, CurrentMonitor());
+        RefreshAll();
+    }
+
+    private async void Pair_Click(object sender, RoutedEventArgs e)
+    {
+        string code = new string(PairCodeBox.Text.Where(char.IsDigit).ToArray());
+        var id = (SeenHostBox.SelectedItem as ComboBoxItem)?.Tag as string;
+        var host = id != null ? _rx.Beacons.Find(id) : null;
+        if (host == null)
+        {
+            MessageBox.Show(this, "Elegí el equipo que va a transmitir. Si no aparece, abrí DualScreen en él y verificá que estén en la misma red.",
+                "DualScreen", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        if (code.Length != 6)
+        {
+            MessageBox.Show(this, "Escribí el código de 6 dígitos que muestra el otro equipo en Conexión.", "DualScreen",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        PairButton.IsEnabled = false;
+        bool ok = await _rx.PairAndStartAsync(host, code, PairNoKeyboard.IsChecked == true, CurrentMonitor());
+        if (ok) PairCodeBox.Text = "";
+        RefreshAll();
+    }
+
+    private void ReceiveStop_Click(object sender, RoutedEventArgs e)
+    {
+        _rx.Stop();
+        RefreshAll();
+    }
+
+    private void RemoteInput_Click(object sender, RoutedEventArgs e) =>
+        SettingsStore.Update(s => s.AllowRemoteInput = RemoteInputToggle.IsChecked == true);
 
     private void RefreshHome()
     {
@@ -331,6 +489,8 @@ public partial class MainWindow : Window
         AutoUpdateToggle.IsChecked = s.AutoCheckUpdates;
         HostNameBox.Text = s.HostName;
         LanToggle.IsChecked = s.LanEnabled;
+        AnnounceToggle.IsChecked = s.AnnounceOnLan;
+        RemoteInputToggle.IsChecked = s.AllowRemoteInput;
         PortBox.Text = s.LanPort.ToString();
         RemoteToggle.IsChecked = s.RemoteEnabled;
         SignalingBox.Text = s.SignalingUrl;
@@ -445,6 +605,7 @@ public partial class MainWindow : Window
         SettingsStore.Update(s =>
         {
             s.LanEnabled = LanToggle.IsChecked == true;
+            s.AnnounceOnLan = AnnounceToggle.IsChecked == true;
             if (int.TryParse(PortBox.Text, out int port) && port is > 1024 and < 65536) s.LanPort = port;
             s.RemoteEnabled = RemoteToggle.IsChecked == true;
             s.SignalingUrl = SignalingBox.Text.Trim();

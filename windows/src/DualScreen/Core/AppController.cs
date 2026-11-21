@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using DualScreen.Display;
+using DualScreen.Input;
 using DualScreen.Media;
 using DualScreen.Net;
 using DualScreen.Remote;
@@ -29,12 +30,14 @@ public sealed class AppController : IDisposable
     private D3DDevice? _d3d;
     private CancellationTokenSource? _releaseDelay;
     private bool _driverHintShown;
+    private readonly InputInjector _injector = new();
 
     public HostIdentity Identity { get; }
     public PairingService Pairing { get; }
     public LanServer Lan { get; }
     public DiscoveryResponder Discovery { get; }
     public RemoteHost Remote { get; }
+    public BeaconService Beacon { get; }
     public Update.UpdateService Updates { get; }
 
     public LinkState State { get; private set; } = LinkState.Waiting;
@@ -60,6 +63,10 @@ public sealed class AppController : IDisposable
         Lan = new LanServer(Identity, OnIncomingStream);
         Discovery = new DiscoveryResponder(Identity, () => Lan.Port);
         Remote = new RemoteHost(Identity, OnIncomingStream);
+        Beacon = new BeaconService(Identity, () => Lan.IsRunning ? Lan.Port : 0, async (addrs, port) =>
+        {
+            if (!await Lan.DialAsync(addrs, port).ConfigureAwait(false)) Log.Info("Dial requested by a receiver failed on every address");
+        });
         Updates = new Update.UpdateService();
         Remote.StatusChanged += RaiseChanged;
         Remote.DialRequested += async (addrs, port) =>
@@ -90,6 +97,7 @@ public sealed class AppController : IDisposable
             Discovery.Stop();
         }
         if (s.RemoteEnabled) Remote.Start(); else Remote.Stop();
+        if (s.AnnounceOnLan) Beacon.Start(); else Beacon.Stop();
         RaiseChanged();
     }
 
@@ -213,6 +221,9 @@ public sealed class AppController : IDisposable
             case MsgType.Stats:
                 RaiseChanged();
                 break;
+            case MsgType.Input:
+                if (SettingsStore.Current.AllowRemoteInput) _injector.Handle(f.Payload);
+                break;
         }
     }
 
@@ -319,6 +330,7 @@ public sealed class AppController : IDisposable
             session.SendJson(MsgType.StreamConfig, CurrentConfig);
             pipeline.Start();
             _pipeline = pipeline;
+            _injector.SetTarget(target.Monitor, outW, outH);
             SetState(LinkState.Streaming, $"Transmitiendo a {session.Hello.DeviceName}");
         }
         catch (Exception ex)
@@ -332,6 +344,7 @@ public sealed class AppController : IDisposable
 
     private void StopStreaming(bool keepMonitor)
     {
+        _injector.ClearTarget();
         _pipeline?.Dispose();
         _pipeline = null;
         if (!keepMonitor) _display.Release();
@@ -377,6 +390,8 @@ public sealed class AppController : IDisposable
         Lan.Dispose();
         Discovery.Dispose();
         Remote.Dispose();
+        Beacon.Dispose();
+        _injector.Dispose();
         Updates.Dispose();
         Identity.Dispose();
     }
