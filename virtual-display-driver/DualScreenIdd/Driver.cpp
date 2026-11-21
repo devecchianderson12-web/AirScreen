@@ -93,13 +93,15 @@ static UINT32 ConnectorFromEdid(const BYTE* edid, UINT32 size)
 
 // ---------------------------------------------------------------------------------------------- modes
 
-static DISPLAYCONFIG_VIDEO_SIGNAL_INFO SignalInfo(const Mode& m)
+// Monitor modes must use vSyncFreqDivider = 0 and target modes 1 (as in Microsoft's IddSampleDriver);
+// a monitor mode with divider 1 makes IddCxMonitorArrival fail with STATUS_INVALID_PARAMETER.
+static DISPLAYCONFIG_VIDEO_SIGNAL_INFO SignalInfo(const Mode& m, bool monitorMode)
 {
     DISPLAYCONFIG_VIDEO_SIGNAL_INFO s = {};
     s.totalSize.cx = s.activeSize.cx = m.Width;
     s.totalSize.cy = s.activeSize.cy = m.Height;
     s.AdditionalSignalInfo.videoStandard = 255;
-    s.AdditionalSignalInfo.vSyncFreqDivider = 1;
+    s.AdditionalSignalInfo.vSyncFreqDivider = monitorMode ? 0 : 1;
     s.vSyncFreq.Numerator = m.RefreshHz;
     s.vSyncFreq.Denominator = 1;
     s.hSyncFreq.Numerator = m.RefreshHz * m.Height;
@@ -114,7 +116,7 @@ static IDDCX_MONITOR_MODE MonitorMode(const Mode& m, IDDCX_MONITOR_MODE_ORIGIN o
     IDDCX_MONITOR_MODE mode = {};
     mode.Size = sizeof(mode);
     mode.Origin = origin;
-    mode.MonitorVideoSignalInfo = SignalInfo(m);
+    mode.MonitorVideoSignalInfo = SignalInfo(m, true);
     return mode;
 }
 
@@ -122,7 +124,7 @@ static IDDCX_TARGET_MODE TargetMode(const Mode& m)
 {
     IDDCX_TARGET_MODE mode = {};
     mode.Size = sizeof(mode);
-    mode.TargetVideoSignalInfo.targetVideoSignalInfo = SignalInfo(m);
+    mode.TargetVideoSignalInfo.targetVideoSignalInfo = SignalInfo(m, false);
     return mode;
 }
 

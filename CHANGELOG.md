@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones [SemVer](https://semver.org/lang/es/).
 
+## [0.2.7] - 2026-11-21
+
+### Corregido
+- Pantalla extendida: Windows rechazaba el monitor virtual («IddCxMonitorArrival devolvió 0xC000000D»). Los modos del monitor se describían con un divisor de sincronía vertical inválido (1 en lugar de 0). Corregido; actualizá el controlador.
+
 ## [0.2.6] - 2026-11-21
 
 ### Corregido
