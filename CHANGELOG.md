@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones [SemVer](https://semver.org/lang/es/).
 
+## [0.2.8] - 2026-11-21
+
+### Corregido
+- La pantalla táctil del receptor no hacía nada en la PC emisora: Windows rechazaba los toques inyectados («InjectTouchInput failed (87)») porque se marcaban como contacto principal. Corregido y verificado. Si algún equipo igual rechazara los toques, DualScreen pasa automáticamente a manejar el toque como mouse (tocar = clic, arrastrar = arrastrar).
+
 ## [0.2.7] - 2026-11-21
 
 ### Corregido

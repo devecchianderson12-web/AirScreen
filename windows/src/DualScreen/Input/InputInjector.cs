@@ -27,7 +27,9 @@ public sealed class InputInjector : IDisposable
     private readonly Timer _keepAlive;
     private IntPtr _monitor;
     private int _videoW, _videoH;
-    private bool _touchReady, _touchFailed;
+    private bool _touchReady, _touchFailed, _touchAsMouse;
+    private int _touchFailures;
+    private byte? _mouseFinger;
     private IntPtr _penDevice;
     private bool _penFailed;
     private (int x, int y, uint pressure, PenButtons buttons, bool contact)? _pen;
@@ -133,8 +135,8 @@ public sealed class InputInjector : IDisposable
 
     private void OnTouch(byte id, ContactState state, ushort nx, ushort ny, ushort pressure)
     {
-        if (!EnsureTouch()) return;
         if (!Map(nx, ny, out int x, out int y)) return;
+        if (_touchAsMouse || !EnsureTouch()) { TouchAsMouse(id, state, nx, ny); return; }
         if (!_contacts.TryGetValue(id, out var c))
         {
             if (state is ContactState.Up or ContactState.Cancel) return;
@@ -148,6 +150,25 @@ public sealed class InputInjector : IDisposable
         if (state is not (ContactState.Up or ContactState.Cancel)) { c.X = x; c.Y = y; }
         c.Pressure = pressure == 0 ? 512u : Math.Min(pressure, (ushort)1024);
         InjectTouchFrame(id, state);
+    }
+
+    /// <summary>Fallback: the first finger drives the mouse (tap = click, drag = drag); other fingers are ignored.</summary>
+    private void TouchAsMouse(byte id, ContactState state, ushort nx, ushort ny)
+    {
+        switch (state)
+        {
+            case ContactState.Down when _mouseFinger == null:
+                _mouseFinger = id;
+                OnMouseButton(MouseButtonId.Left, true, nx, ny);
+                break;
+            case ContactState.Move when _mouseFinger == id:
+                MouseAt(nx, ny, 0, 0);
+                break;
+            case ContactState.Up or ContactState.Cancel when _mouseFinger == id:
+                OnMouseButton(MouseButtonId.Left, false, nx, ny);
+                _mouseFinger = null;
+                break;
+        }
     }
 
     private bool EnsureTouch()
@@ -174,7 +195,6 @@ public sealed class InputInjector : IDisposable
             else if (id == changedId && changedState == ContactState.Cancel) { flags = POINTER_FLAG_UP | POINTER_FLAG_CANCELED; ended.Add(id); }
             else if (!c.Injected) { flags = POINTER_FLAG_DOWN | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT; c.Injected = true; }
             else flags = POINTER_FLAG_UPDATE | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT;
-            if (i == 0) flags |= POINTER_FLAG_PRIMARY;
             frame[i++] = new POINTER_TOUCH_INFO
             {
                 pointerInfo = new POINTER_INFO
@@ -195,8 +215,19 @@ public sealed class InputInjector : IDisposable
         {
             int err = Marshal.GetLastWin32Error();
             LogOnce($"InjectTouchInput failed ({err})");
-            if (err == 87) { _contacts.Clear(); return; } // ERROR_INVALID_PARAMETER: Windows cancelled every contact
+            if (err == 87) // ERROR_INVALID_PARAMETER: Windows cancelled every contact
+            {
+                _contacts.Clear();
+                if (++_touchFailures >= 3)
+                {
+                    // Some systems refuse injected touch: keep the screen usable with touch → mouse.
+                    _touchAsMouse = true;
+                    Log.Warn("Touch injection keeps failing; emulating touch with the mouse");
+                }
+                return;
+            }
         }
+        else _touchFailures = 0;
         foreach (var id in ended) _contacts.Remove(id);
         _lastInjectTicks = Environment.TickCount64;
     }
@@ -357,6 +388,7 @@ public sealed class InputInjector : IDisposable
                 }
             }
             _contacts.Clear();
+            _mouseFinger = null;
             if (_pen is { } p && _penDevice != IntPtr.Zero)
             {
                 if (p.contact) InjectPen(POINTER_FLAG_UP | POINTER_FLAG_INRANGE, p.x, p.y, 0, PenButtons.None);
