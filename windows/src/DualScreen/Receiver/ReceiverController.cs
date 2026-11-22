@@ -41,7 +41,36 @@ public sealed class ReceiverController : IDisposable
     /// <summary>The viewer closed (user exit, host stop or error). Argument: error to show, or null.</summary>
     public event Action<string?>? Ended;
 
-    private ReceiverController() { }
+    private string? _lastCastId;
+
+    private ReceiverController()
+    {
+        Beacons.HostSeen += OnHostSeen;
+    }
+
+    /// <summary>
+    /// Listens for "Transmitir" requests from linked PCs (only when this PC already has linked PCs and the option is
+    /// on; the firewall permission was given when it was linked). Called at startup.
+    /// </summary>
+    public void EnableCastListening()
+    {
+        if (SettingsStore.Current.AcceptCasts && ReceiverStore.Hosts.Count > 0) Beacons.Start();
+    }
+
+    private void OnHostSeen(SeenHost h)
+    {
+        if (h.CastId == null || h.CastId == _lastCastId || !SettingsStore.Current.AcceptCasts) return;
+        if (Array.IndexOf(h.CastTargets, ReceiverStore.DeviceId) < 0) return;
+        var saved = ReceiverStore.Find(h.HostId);
+        if (saved == null) return; // only PCs this computer was linked to
+        _lastCastId = h.CastId;
+        if (Busy && ActiveHostId == h.HostId) return;
+        Log.Info($"{saved.Name} asked to show its screen here");
+        CastRequested?.Invoke(saved);
+    }
+
+    /// <summary>A linked PC pressed "Transmitir" to this computer (the app starts the viewer on the UI thread).</summary>
+    public event Action<SavedHost>? CastRequested;
 
     private void Set(ReceiverState st, string text, string? error = null)
     {

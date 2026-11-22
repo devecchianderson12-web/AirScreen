@@ -54,6 +54,44 @@ public sealed class AppController : IDisposable
     public DisplayMode EffectiveMode { get; private set; }
 
     public event Action? StateChanged;
+
+    /// <summary>Device being asked to connect by "Transmitir" (null when none).</summary>
+    public string? CastingTo { get; private set; }
+    private CancellationTokenSource? _castCts;
+
+    /// <summary>
+    /// Starts streaming to a linked receiver PC without touching it: the beacon asks it to connect, and it opens the
+    /// full-screen view by itself (it only needs DualScreen running, e.g. with "Iniciar con Windows").
+    /// </summary>
+    public void CastTo(TrustedDevice d)
+    {
+        _castCts?.Cancel();
+        var cts = _castCts = new CancellationTokenSource();
+        if (!Beacon.IsRunning) Beacon.Start();
+        CastingTo = d.DeviceId;
+        Beacon.Cast(new[] { d.DeviceId }, TimeSpan.FromSeconds(25));
+        SetState(State == LinkState.Streaming ? State : LinkState.Negotiating, $"Pidiendo a {d.Name} que muestre esta pantalla…");
+        _ = Task.Delay(TimeSpan.FromSeconds(25), cts.Token).ContinueWith(t =>
+        {
+            if (t.IsCanceled || CastingTo != d.DeviceId) return;
+            CastingTo = null;
+            Beacon.CancelCast();
+            if (_session == null || _session.IsClosed)
+                SetState(LinkState.Error, $"{d.Name} no respondió",
+                    "Verificá que esté encendida, en la misma red y con DualScreen abierto (activá «Iniciar con Windows» en ella).");
+        }, TaskScheduler.Default);
+    }
+
+    public void CancelCast()
+    {
+        _castCts?.Cancel();
+        CastingTo = null;
+        Beacon.CancelCast();
+        if (_session == null) SetState(LinkState.Waiting, "Esperando un dispositivo");
+    }
+
+    /// <summary>Linked PCs that can receive a cast (Windows receivers).</summary>
+    public IEnumerable<TrustedDevice> CastTargets => Pairing.Devices.Where(d => d.Model == "PC con Windows").OrderByDescending(d => d.LastSeenUtc);
     public event Action<string, string>? Notify; // title, text
 
     public AppController()
@@ -184,6 +222,12 @@ public sealed class AppController : IDisposable
                 }
             }
 
+            if (CastingTo == hello.DeviceId)
+            {
+                _castCts?.Cancel();
+                CastingTo = null;
+                Beacon.CancelCast();
+            }
             var session = new ClientSession(stream, hello, transport, remote);
             session.Device = Pairing.Devices.FirstOrDefault(d => d.DeviceId == hello.DeviceId);
             session.Closed += OnSessionClosed;

@@ -103,6 +103,7 @@ public partial class MainWindow : Window
     private void RefreshAll()
     {
         RefreshHome();
+        RefreshCastTargets();
         RefreshDisplayOptions();
         RefreshConnection();
         RefreshUpdates();
@@ -370,6 +371,62 @@ public partial class MainWindow : Window
         }
     }
 
+    private string _castSignature = "";
+
+    /// <summary>Linked receiver PCs with a "Transmitir" button (cast without touching them).</summary>
+    private void RefreshCastTargets()
+    {
+        var targets = _app.CastTargets.ToList();
+        var s = _app.Session;
+        string sig = string.Join("|", targets.Select(t => t.DeviceId + t.Name)) + "|" + _app.CastingTo + "|" + s?.Hello.DeviceId + (s?.IsClosed ?? true);
+        if (sig == _castSignature) return;
+        _castSignature = sig;
+        CastList.Children.Clear();
+        NoCastTargets.Visibility = targets.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var d in targets)
+        {
+            bool showing = s != null && !s.IsClosed && s.Hello.DeviceId == d.DeviceId;
+            bool asking = _app.CastingTo == d.DeviceId;
+            var card = new Border { Style = (Style)FindResource("Card") };
+            var dock = new DockPanel();
+            var btn = new Button { Style = (Style)FindResource(showing || asking ? "BaseButton" : "AccentButton"), VerticalAlignment = VerticalAlignment.Center };
+            var sp = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+            sp.Children.Add(new TextBlock { Text = showing ? "\uE71A" : asking ? "\uE711" : "\uEC15", Style = (Style)FindResource("Icon"), FontSize = 14, Margin = new Thickness(0, 0, 8, 0), Foreground = Brushes.White });
+            sp.Children.Add(new TextBlock { Text = showing ? "Detener" : asking ? "Cancelar" : "Transmitir", Foreground = Brushes.White });
+            btn.Content = sp;
+            var dev = d;
+            btn.Click += (_, _) =>
+            {
+                if (showing) _app.Disconnect();
+                else if (asking) _app.CancelCast();
+                else _app.CastTo(dev);
+                _castSignature = "";
+                RefreshAll();
+            };
+            DockPanel.SetDock(btn, Dock.Right);
+            dock.Children.Add(btn);
+            var left = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+            left.Children.Add(new TextBlock { Text = "\uE7F8", Style = (Style)FindResource("Icon"), Margin = new Thickness(0, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center });
+            var info = new StackPanel();
+            info.Children.Add(new TextBlock { Text = d.Name, FontWeight = FontWeights.SemiBold });
+            info.Children.Add(new TextBlock
+            {
+                Text = showing ? "Mostrando esta pantalla" : asking ? "Esperando que responda…" : $"Visto {d.LastSeenUtc.ToLocalTime():g}",
+                Style = (Style)FindResource("CaptionText"),
+            });
+            left.Children.Add(info);
+            dock.Children.Add(left);
+            card.Child = dock;
+            CastList.Children.Add(card);
+        }
+    }
+
+    private void AcceptCasts_Click(object sender, RoutedEventArgs e)
+    {
+        SettingsStore.Update(s => s.AcceptCasts = AcceptCastsToggle.IsChecked == true);
+        _rx.EnableCastListening();
+    }
+
     private void RefreshDisplayOptions()
     {
         bool wasLoading = _loading;
@@ -594,6 +651,7 @@ public partial class MainWindow : Window
         LanNoCodeToggle.IsChecked = s.LanNoCode;
         StartMinimizedToggle.IsChecked = s.StartMinimized;
         ReceiverAudioToggle.IsChecked = s.ReceiverAudio;
+        AcceptCastsToggle.IsChecked = s.AcceptCasts;
         RemoteInputToggle.IsChecked = s.AllowRemoteInput;
         PortBox.Text = s.LanPort.ToString();
         RemoteToggle.IsChecked = s.RemoteEnabled;

@@ -2,6 +2,14 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones [SemVer](https://semver.org/lang/es/).
 
+## [0.3.1] - 2026-11-22
+
+### Añadido
+- **Transmitir desde la PC** (Windows → Inicio → «Transmitir a un equipo», y en el menú del icono): la PC le pide a una notebook o PC vinculada que muestre su pantalla, y esa notebook la abre sola, sin tocarla. Solo necesita estar encendida con DualScreen abierto (conviene «Iniciar con Windows»). En el receptor se puede desactivar con «Permitir que las PCs vinculadas transmitan acá».
+
+### Cambiado
+- **App Android rediseñada como la de Windows**: mismos colores y estilo (azul noche y violeta, tarjetas y filas de ajustes) y las mismas secciones: Inicio (estado, botón Conectar y estadísticas en vivo), Equipos (las computadoras de la red, un toque para conectar sin código), Pantalla (modo extendida/espejo, monitor, resolución, frecuencia, calidad, prioridad, códec y bitrate, aplicados en la PC) y Configuración (sonido, estadísticas, actualizaciones). El panel de ajustes durante la transmisión usa las mismas filas.
+
 ## [0.3.0] - 2026-11-21
 
 ### Añadido

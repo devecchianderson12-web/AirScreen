@@ -22,6 +22,7 @@ public sealed class TrayIcon : IDisposable
     private readonly MenuItem _connectItem;
     private readonly MenuItem _disconnectItem;
     private readonly MenuItem _receiveItem;
+    private readonly MenuItem _castItem;
     private readonly MenuItem _stopReceiveItem;
     private Window? _menuHost;
     private string? _balloonTarget;
@@ -60,6 +61,14 @@ public sealed class TrayIcon : IDisposable
             else _ = Receiver.ReceiverController.Instance.StartAsync(last, IntPtr.Zero);
         });
         _stopReceiveItem = Item("Dejar de usar como monitor", "\uE71A", () => Receiver.ReceiverController.Instance.Stop());
+        _castItem = Item("Transmitir", "\uEC15", () =>
+        {
+            var c = AppController.Instance;
+            var target = c.CastTargets.FirstOrDefault();
+            if (target == null) _app.ShowMainWindow();
+            else c.CastTo(target);
+        });
+        _menu.Items.Add(_castItem);
         _menu.Items.Add(_receiveItem);
         _menu.Items.Add(_stopReceiveItem);
         _menu.Items.Add(new Separator());
@@ -94,6 +103,9 @@ public sealed class TrayIcon : IDisposable
         bool connected = c.Session != null && !c.Session.IsClosed;
         _connectItem.IsEnabled = !connected;
         _disconnectItem.IsEnabled = connected;
+        var castTarget = c.CastTargets.FirstOrDefault();
+        _castItem.Header = castTarget != null ? $"Transmitir a {castTarget.Name}" : "Transmitir a un equipo…";
+        _castItem.Visibility = connected ? Visibility.Collapsed : Visibility.Visible;
         var rx = Receiver.ReceiverController.Instance;
         var last = Receiver.ReceiverStore.Hosts.FirstOrDefault();
         _receiveItem.Header = last != null ? $"Usar como monitor de {last.Name}" : "Usar como monitor de otra PC…";

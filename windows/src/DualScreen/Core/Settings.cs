@@ -47,6 +47,8 @@ public sealed class AppSettings
     public string MirrorMonitor { get; set; } = "";
     /// <summary>When this PC is used as a monitor: play the other PC's sound here.</summary>
     public bool ReceiverAudio { get; set; } = false;
+    /// <summary>Linked PCs may start showing their screen here by themselves ("Transmitir" on the other PC).</summary>
+    public bool AcceptCasts { get; set; } = true;
     public string SignalingUrl { get; set; } = "";
     public string StunUrls { get; set; } = "stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302";
     /// <summary>Overrides the build's TURN credentials endpoint (empty = use dualscreen.repo.json).</summary>

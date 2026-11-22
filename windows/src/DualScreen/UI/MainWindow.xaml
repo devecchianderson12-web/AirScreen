@@ -82,6 +82,11 @@
                                 </Grid>
                             </Border>
 
+                            <TextBlock Text="Transmitir a un equipo" Style="{StaticResource SubtitleText}"/>
+                            <TextBlock Text="Mostrá esta pantalla en una notebook o PC vinculada sin tocarla: solo necesita estar encendida con DualScreen abierto." Style="{StaticResource CaptionText}" Margin="2,0,0,8" TextWrapping="Wrap"/>
+                            <StackPanel x:Name="CastList"/>
+                            <TextBlock x:Name="NoCastTargets" Text="Todavía no hay equipos vinculados. Vinculá la notebook desde su DualScreen → Usar como monitor (una vez); después aparece acá." Style="{StaticResource CaptionText}" Margin="2,0,0,0" TextWrapping="Wrap"/>
+
                             <TextBlock Text="Transmisión" Style="{StaticResource SubtitleText}"/>
                             <UniformGrid Columns="3" x:Name="StatsGrid">
                                 <Border Style="{StaticResource Card}" Margin="0,0,4,4"><StackPanel>
@@ -266,6 +271,12 @@
                                 <CheckBox x:Name="ReceiverAudioToggle" DockPanel.Dock="Right" Style="{StaticResource ToggleSwitch}" Click="ReceiverAudio_Click"/>
                                 <StackPanel><TextBlock Text="Escuchar el sonido de la otra PC"/>
                                     <TextBlock Text="El audio de la PC que transmite se reproduce en este equipo, con muy poco retraso." Style="{StaticResource CaptionText}" TextWrapping="Wrap"/></StackPanel>
+                            </DockPanel></Border>
+
+                            <Border Style="{StaticResource Card}"><DockPanel>
+                                <CheckBox x:Name="AcceptCastsToggle" DockPanel.Dock="Right" Style="{StaticResource ToggleSwitch}" Click="AcceptCasts_Click"/>
+                                <StackPanel><TextBlock Text="Permitir que las PCs vinculadas transmitan acá"/>
+                                    <TextBlock Text="Con «Transmitir» en la otra PC, este equipo muestra su pantalla solo, sin tocarlo. Conviene activar «Iniciar con Windows»." Style="{StaticResource CaptionText}" TextWrapping="Wrap"/></StackPanel>
                             </DockPanel></Border>
 
                             <TextBlock Text="En esta red" Style="{StaticResource SubtitleText}"/>

@@ -30,6 +30,33 @@ public sealed class BeaconService : IDisposable
     private UdpClient? _udp;
     private CancellationTokenSource? _cts;
     private DateTime _lastDial = DateTime.MinValue;
+    private readonly object _castGate = new();
+    private string[] _castTargets = Array.Empty<string>();
+    private string _castId = "";
+    private DateTime _castUntil = DateTime.MinValue;
+
+    /// <summary>
+    /// "Transmitir a…": for a short time the beacon names the receiver(s) that should connect now. A linked
+    /// receiver PC running DualScreen sees its device id and starts showing this PC by itself (nobody has to touch
+    /// it). The connection is the normal authenticated one, so a forged beacon can only make a receiver connect to
+    /// a PC it already trusts.
+    /// </summary>
+    public void Cast(IEnumerable<string> deviceIds, TimeSpan duration)
+    {
+        lock (_castGate)
+        {
+            _castTargets = deviceIds.ToArray();
+            _castId = Guid.NewGuid().ToString("N")[..12];
+            _castUntil = DateTime.UtcNow + duration;
+        }
+    }
+
+    public void CancelCast()
+    {
+        lock (_castGate) { _castTargets = Array.Empty<string>(); _castUntil = DateTime.MinValue; }
+    }
+
+    public bool Casting { get { lock (_castGate) return _castTargets.Length > 0 && DateTime.UtcNow < _castUntil; } }
 
     public BeaconService(HostIdentity identity, Func<int> lanPort, Func<IReadOnlyList<IPAddress>, int, Task> dial)
     {
@@ -66,6 +93,11 @@ public sealed class BeaconService : IDisposable
             try
             {
                 var s = SettingsStore.Current;
+                string[]? cast = null; string? castId = null;
+                lock (_castGate)
+                {
+                    if (_castTargets.Length > 0 && DateTime.UtcNow < _castUntil) { cast = _castTargets; castId = _castId; }
+                }
                 byte[] payload = JsonSerializer.SerializeToUtf8Bytes(new
                 {
                     magic = BeaconMagic,
@@ -76,6 +108,8 @@ public sealed class BeaconService : IDisposable
                     version = AppInfo.VersionString,
                     proto = AppInfo.ProtocolVersion,
                     s = s.RemoteEnabled ? s.EffectiveSignalingUrl : null,
+                    cast,
+                    castId,
                 }, Json.Options);
                 foreach (var target in BroadcastTargets())
                 {
@@ -91,7 +125,7 @@ public sealed class BeaconService : IDisposable
             catch (OperationCanceledException) { break; }
             catch (ObjectDisposedException) { break; }
             catch (Exception ex) { Log.Info("Beacon send failed: " + ex.Message); }
-            try { await Task.Delay(1500, ct).ConfigureAwait(false); } catch { break; }
+            try { await Task.Delay(Casting ? 400 : 1500, ct).ConfigureAwait(false); } catch { break; }
         }
     }
 

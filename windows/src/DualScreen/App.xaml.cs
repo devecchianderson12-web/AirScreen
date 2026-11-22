@@ -53,6 +53,14 @@ public partial class App : Application
             if (error != null || _window != null) ShowMainWindow("receive");
         });
         Receiver.ReceiverController.Instance.Changed += () => Dispatcher.BeginInvoke(() => _tray?.UpdateState());
+        // "Transmitir" pressed on a linked PC: show it here right away, nobody needs to touch this computer.
+        Receiver.ReceiverController.Instance.CastRequested += host => Dispatcher.BeginInvoke(async () =>
+        {
+            var rx = Receiver.ReceiverController.Instance;
+            if (rx.Busy) rx.Stop();
+            await rx.StartAsync(host, IntPtr.Zero);
+        });
+        Receiver.ReceiverController.Instance.EnableCastListening();
 
         // A second launch of DualScreen.exe just asks this instance to show its window.
         if (_showSignal != null)

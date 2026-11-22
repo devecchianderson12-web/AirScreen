@@ -25,6 +25,9 @@ public sealed class SeenHost
     public string? SignalingUrl { get; set; }
     /// <summary>Where the last beacon came from: dial requests are answered to this endpoint.</summary>
     public IPEndPoint? BeaconSource { get; set; }
+    /// <summary>Device ids the PC is asking to connect now ("Transmitir"), and the id of that request.</summary>
+    public string[] CastTargets { get; set; } = Array.Empty<string>();
+    public string? CastId { get; set; }
     public IPAddress Address { get; set; } = IPAddress.None;
     public DateTime LastSeenUtc { get; set; }
     public override string ToString() => $"{Name} ({Address})";
@@ -118,6 +121,8 @@ public sealed class BeaconListener : IDisposable
                     h.Port = (int?)o["port"] ?? 0;
                     h.SignalingUrl = (string?)o["s"];
                     h.BeaconSource = r.RemoteEndPoint;
+                    h.CastTargets = (o["cast"] as JsonArray)?.Select(x => (string?)x ?? "").ToArray() ?? Array.Empty<string>();
+                    h.CastId = (string?)o["castId"];
                 }
                 else h.Port = (int?)o["port"] ?? h.Port; // a discovery answer means the host is listening
                 HostSeen?.Invoke(h);
