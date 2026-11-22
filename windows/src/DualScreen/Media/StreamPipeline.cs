@@ -30,11 +30,13 @@ public sealed class StreamPipeline : IDisposable
     private readonly DisplayTarget _target;
     private readonly ClientSession _session;
     private readonly BitrateController _abr;
-    private readonly string _mime;
+    private string _mime;
+    /// <summary>Codec actually used (H.264 when the requested hardware HEVC/AV1 encoder cannot start).</summary>
+    public string Mime => _mime;
     private readonly int _outW, _outH;
     private readonly Thread _thread;
     private readonly CancellationTokenSource _cts = new();
-    private WgcCapture? _capture;
+    private ICaptureSource? _capture;
     private FrameConverter? _converter;
     private MfEncoder? _encoder;
     private volatile bool _keyframeRequested = true;
@@ -56,26 +58,53 @@ public sealed class StreamPipeline : IDisposable
         _mime = mime;
         _outW = outW;
         _outH = outH;
-        _thread = new Thread(Run) { IsBackground = true, Name = "DualScreen.Pipeline", Priority = ThreadPriority.Highest };
+        _thread = new Thread(RunThread) { IsBackground = true, Name = "DualScreen.Pipeline", Priority = ThreadPriority.Highest };
     }
 
     public void Start()
     {
-        _capture = new WgcCapture(_d3d, _target.Monitor, CaptureCursor);
+        _capture = CreateCapture();
+        try { _capture.Start(); }
+        catch (Exception ex) when (_capture is WgcCapture)
+        {
+            // e.g. 0x80070422: the Windows capture service is disabled on this PC.
+            Log.Warn("Windows.Graphics.Capture could not start (" + ex.Message + "); using Desktop Duplication");
+            _capture.Dispose();
+            _capture = new DuplicationCapture(_d3d, _target.Monitor);
+            _capture.Start();
+        }
         _capture.SizeChanged += (w, h) => { _captureResized = true; SourceResized?.Invoke(w, h); };
-        if (!CaptureCursor) _cursor = new CursorTracker(_session, _target.Monitor, _outW, _outH);
+        if (!CaptureCursor || _capture is DuplicationCapture) _cursor = new CursorTracker(_session, _target.Monitor, _outW, _outH);
         _converter = new FrameConverter(_d3d, _capture.Width, _capture.Height, _outW, _outH, _abr.TargetFps);
         _encoder = CreateEncoder();
         Stats.Encoder = _encoder.Name + (_encoder.IsHardware ? " (HW)" : " (SW)");
-        _capture.Start();
-        _thread.Start();
+    }
+
+    /// <summary>Starts encoding and sending (call after STREAM_CONFIG with <see cref="Mime"/> was sent).</summary>
+    public void Run() => _thread.Start();
+
+    /// <summary>Windows.Graphics.Capture first; Desktop Duplication when WGC is unavailable on this PC.</summary>
+    private ICaptureSource CreateCapture()
+    {
+        try { return new WgcCapture(_d3d, _target.Monitor, CaptureCursor); }
+        catch (Exception ex)
+        {
+            Log.Warn("Windows.Graphics.Capture unavailable (" + ex.Message + "); using Desktop Duplication");
+            return new DuplicationCapture(_d3d, _target.Monitor);
+        }
     }
 
     private MfEncoder CreateEncoder()
     {
         var perf = SettingsStore.Current.Performance;
         try { return new MfEncoder(_d3d, _mime, _outW, _outH, _abr.TargetFps, _abr.TargetKbps, perf, preferHardware: true); }
-        catch (Exception ex) when (_mime == "video/avc")
+        catch (Exception ex) when (_mime != "video/avc")
+        {
+            Log.Warn($"{_mime} encoder unavailable, falling back to H.264: " + ex.Message);
+            _mime = "video/avc";
+        }
+        try { return new MfEncoder(_d3d, _mime, _outW, _outH, _abr.TargetFps, _abr.TargetKbps, perf, preferHardware: true); }
+        catch (Exception ex)
         {
             Log.Warn("Hardware encoder unavailable, using software H.264: " + ex.Message);
             return new MfEncoder(_d3d, _mime, _outW, _outH, _abr.TargetFps, _abr.TargetKbps, perf, preferHardware: false);
@@ -84,7 +113,7 @@ public sealed class StreamPipeline : IDisposable
 
     public void RequestKeyframe() => _keyframeRequested = true;
 
-    private void Run()
+    private void RunThread()
     {
         IntPtr mmcss = Perf.EnterRealtime();
         try { RunCore(); }
@@ -137,7 +166,7 @@ public sealed class StreamPipeline : IDisposable
                 }
                 outFrames.Clear();
 
-                long counter = Interlocked.Read(ref _capture!.FrameCounter);
+                long counter = _capture!.Counter;
                 bool haveNew = counter != lastCaptured;
                 bool linkReady = _session.QueuedVideoFrames < 2;
                 bool due = now >= nextDueMs;
@@ -156,7 +185,7 @@ public sealed class StreamPipeline : IDisposable
                     }
                     if (!haveNew && refine) refineLeft--;
                     // pts = capture time (QPC µs): receivers measure true capture-to-display latency with it.
-                    long pts = Interlocked.Read(ref _capture.LatestTimeUs);
+                    long pts = _capture.TimeUs;
                     if (pts <= 0 || haveNew == false) pts = Net.HostClock.NowUs();
                     while (submitTimes.ContainsKey(pts)) pts++;
                     lock (_capture.TextureLock)

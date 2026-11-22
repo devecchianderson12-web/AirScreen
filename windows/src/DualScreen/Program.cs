@@ -31,6 +31,10 @@ public static class Program
             }
         }
 
+        // WPF touch through WM_POINTER instead of the legacy tablet service: works with injected touch (DualScreen
+        // receivers controlling this PC) and on PCs where the tablet input service is disabled.
+        AppContext.SetSwitch("Switch.System.Windows.Input.Stylus.EnablePointerSupport", true);
+
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
         {
             Log.Error("Fatal error", e.ExceptionObject as Exception);

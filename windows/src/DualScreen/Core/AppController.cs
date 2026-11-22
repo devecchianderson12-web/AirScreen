@@ -510,13 +510,15 @@ public sealed class AppController : IDisposable
                 session.Close("pipeline failure");
             };
 
+            try { pipeline.Start(); } // capture + encoder ready (may switch to Desktop Duplication / H.264)
+            catch { pipeline.Dispose(); throw; }
             CurrentConfig = new StreamConfigMsg
             {
-                Mime = mime, Width = outW, Height = outH, Fps = fps, BitrateKbps = abr.TargetKbps,
+                Mime = pipeline.Mime, Width = outW, Height = outH, Fps = fps, BitrateKbps = abr.TargetKbps,
                 Mode = extended ? "extended" : "mirror",
             };
             session.SendJson(MsgType.StreamConfig, CurrentConfig);
-            pipeline.Start();
+            pipeline.Run();
             _pipeline = pipeline;
             _injector.SetTarget(target.Monitor, outW, outH);
             if (!_perfActive) { Perf.BeginStreaming(); _perfActive = true; }

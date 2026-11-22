@@ -16,7 +16,7 @@ namespace DualScreen.Media;
 /// mouse cursor, follows rotation and only produces frames when the screen content changes (zero cost when idle).
 /// Every new frame is copied on the GPU into <see cref="Latest"/>; the encoder thread consumes the latest one.
 /// </summary>
-public sealed class WgcCapture : IDisposable
+public sealed class WgcCapture : ICaptureSource
 {
     [ComImport, Guid("3628E81B-3CAC-4C60-B7F4-23CE0E0C3356"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IGraphicsCaptureItemInterop
@@ -55,6 +55,9 @@ public sealed class WgcCapture : IDisposable
     public event Action<int, int>? SizeChanged;
 
     public object TextureLock => _texLock;
+    public long Counter => Interlocked.Read(ref FrameCounter);
+    public long TimeUs => Interlocked.Read(ref LatestTimeUs);
+    AutoResetEvent ICaptureSource.FrameEvent => FrameEvent;
 
     public static bool IsSupported => GraphicsCaptureSession.IsSupported();
 

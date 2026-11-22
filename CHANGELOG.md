@@ -2,6 +2,16 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones [SemVer](https://semver.org/lang/es/).
 
+## [0.3.2] - 2026-11-22
+
+### Corregido
+- Transmitir desde una PC donde el servicio de captura de Windows está deshabilitado (error «0x80070422», típico tras programas de optimización) cortaba la conexión al instante. Ahora DualScreen usa la duplicación de escritorio de DirectX como alternativa automática.
+- Si el codificador HEVC/AV1 por hardware no arranca, se usa H.264 en lugar de cortar.
+- El táctil no respondía al tocar ventanas WPF (como la propia DualScreen) en la PC controlada: WPF ahora recibe el toque por WM_POINTER.
+
+### Añadido
+- Botón **Transmitir** también en «Usar como monitor → Equipos vinculados», cuando ese equipo está vinculado en los dos sentidos.
+
 ## [0.3.1] - 2026-11-22
 
 ### Añadido

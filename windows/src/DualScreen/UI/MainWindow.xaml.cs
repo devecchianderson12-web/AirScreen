@@ -130,7 +130,8 @@ public partial class MainWindow : Window
         RefreshReceiveStatus();
         RefreshSeenHosts();
         var hosts = ReceiverStore.Hosts;
-        string sig = string.Join("|", hosts.Select(h => $"{h.HostId}:{h.Name}:{h.NoKeyboard}:{h.LastUsedUtc.Ticks}")) + "|" + _rx.Busy;
+        string sig = string.Join("|", hosts.Select(h => $"{h.HostId}:{h.Name}:{h.NoKeyboard}:{h.LastUsedUtc.Ticks}")) + "|" + _rx.Busy
+                     + "|" + _app.CastingTo + "|" + string.Join(",", _app.CastTargets.Select(t => t.Name));
         if (sig == _savedSignature) return;
         _savedSignature = sig;
         SavedHostList.Children.Clear();
@@ -153,6 +154,17 @@ public partial class MainWindow : Window
             start.Content = sp;
             start.Click += async (_, _) => await StartReceiving(h);
             actions.Children.Add(start);
+            // Same computer linked the other way too: this PC can push its screen to it ("Transmitir").
+            var castTarget = _app.CastTargets.FirstOrDefault(t => string.Equals(t.Name, h.Name, StringComparison.OrdinalIgnoreCase));
+            if (castTarget != null)
+            {
+                bool asking = _app.CastingTo == castTarget.DeviceId;
+                var cast = new Button { Margin = new Thickness(0, 0, 8, 0), Content = asking ? "Cancelar" : "Transmitir",
+                                        ToolTip = $"Mostrar la pantalla de este PC en {h.Name} sin tocarla" };
+                var ct = castTarget;
+                cast.Click += (_, _) => { if (_app.CastingTo == ct.DeviceId) _app.CancelCast(); else _app.CastTo(ct); _savedSignature = ""; RefreshAll(); };
+                actions.Children.Add(cast);
+            }
             var forget = new Button { Content = "Olvidar" };
             forget.Click += (_, _) =>
             {
