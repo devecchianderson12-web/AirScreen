@@ -85,7 +85,7 @@ class DisplayActivity : Activity(), SurfaceHolder.Callback {
         }
         root.addView(tap, FrameLayout.LayoutParams((40 * d).toInt(), (40 * d).toInt(), Gravity.TOP or Gravity.END))
 
-        root.setOnTouchListener { _, e -> forwardTouch(e); true }
+        root.setOnTouchListener { _, e -> if (store.controlMode == "mouse") touchpad(e) else forwardTouch(e); true }
         setContentView(root)
         enterImmersive()
     }
@@ -139,6 +139,80 @@ class DisplayActivity : Activity(), SurfaceHolder.Callback {
             MotionEvent.ACTION_CANCEL -> {
                 for (id in contactIds.values) StreamHub.sendInput(InputCodec.touch(id, InputCodec.CANCEL, 0, 0, 0))
                 contactIds.clear()
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ touchpad mode
+
+    // The phone screen works like a laptop touchpad: one finger moves the pointer (anywhere on the screen, relative,
+    // with acceleration), tap = click, two-finger tap = right click, two-finger drag = scroll, tap then drag = drag.
+    private var tpLastX = 0f; private var tpLastY = 0f
+    private var tpDownAt = 0L; private var tpMoved = 0f
+    private var tpFingers = 0; private var tpScrollAcc = 0f
+    private var tpLastTapAt = 0L; private var tpDragging = false
+
+    private fun cursorU16(): Pair<Int, Int> = (StreamHub.cursorX.coerceIn(0f, 1f) * 65535).toInt() to (StreamHub.cursorY.coerceIn(0f, 1f) * 65535).toInt()
+
+    private fun touchpad(e: MotionEvent) {
+        val w = surfaceView.width.takeIf { it > 0 } ?: return
+        val h = surfaceView.height.takeIf { it > 0 } ?: return
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                tpLastX = e.x; tpLastY = e.y; tpDownAt = e.eventTime; tpMoved = 0f; tpFingers = 1; tpScrollAcc = 0f
+                if (e.eventTime - tpLastTapAt < 280) { // tap + hold: drag
+                    tpDragging = true
+                    val (x, y) = cursorU16()
+                    StreamHub.sendInput(InputCodec.mouseButton(InputCodec.LEFT, true, x, y))
+                }
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> { tpFingers = maxOf(tpFingers, e.pointerCount); tpLastY = e.getY(0) }
+            MotionEvent.ACTION_MOVE -> {
+                if (e.pointerCount >= 2) {
+                    val dy = e.getY(0) - tpLastY
+                    tpLastY = e.getY(0)
+                    tpMoved += kotlin.math.abs(dy)
+                    tpScrollAcc += dy
+                    val step = resources.displayMetrics.density * 12
+                    while (kotlin.math.abs(tpScrollAcc) >= step) {
+                        val dir = if (tpScrollAcc > 0) 1 else -1
+                        StreamHub.sendInput(InputCodec.wheel(false, 120 * dir)) // natural scrolling
+                        tpScrollAcc -= step * dir
+                    }
+                    return
+                }
+                val dx = e.x - tpLastX; val dy = e.y - tpLastY
+                tpLastX = e.x; tpLastY = e.y
+                tpMoved += kotlin.math.abs(dx) + kotlin.math.abs(dy)
+                // Acceleration: slow moves are precise, fast moves cross the screen.
+                val speed = kotlin.math.sqrt(dx * dx + dy * dy) / resources.displayMetrics.density
+                val gain = 1.1f + minOf(speed / 6f, 2.4f)
+                StreamHub.cursorX = (StreamHub.cursorX + dx * gain / w).coerceIn(0f, 1f)
+                StreamHub.cursorY = (StreamHub.cursorY + dy * gain / h).coerceIn(0f, 1f)
+                StreamHub.localCursorAtMs = android.os.SystemClock.uptimeMillis()
+                val (x, y) = cursorU16()
+                StreamHub.sendInput(InputCodec.mouseMove(x, y))
+            }
+            MotionEvent.ACTION_UP -> {
+                val (x, y) = cursorU16()
+                val quick = e.eventTime - tpDownAt < 260 && tpMoved < resources.displayMetrics.density * 10
+                when {
+                    tpDragging -> { StreamHub.sendInput(InputCodec.mouseButton(InputCodec.LEFT, false, x, y)); tpDragging = false; tpLastTapAt = 0 }
+                    tpFingers >= 2 && quick -> {
+                        StreamHub.sendInput(InputCodec.mouseButton(InputCodec.RIGHT, true, x, y))
+                        StreamHub.sendInput(InputCodec.mouseButton(InputCodec.RIGHT, false, x, y))
+                    }
+                    tpFingers == 1 && quick -> {
+                        StreamHub.sendInput(InputCodec.mouseButton(InputCodec.LEFT, true, x, y))
+                        StreamHub.sendInput(InputCodec.mouseButton(InputCodec.LEFT, false, x, y))
+                        tpLastTapAt = e.eventTime
+                    }
+                }
+                tpFingers = 0
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                if (tpDragging) { val (x, y) = cursorU16(); StreamHub.sendInput(InputCodec.mouseButton(InputCodec.LEFT, false, x, y)) }
+                tpDragging = false; tpFingers = 0
             }
         }
     }
@@ -211,7 +285,7 @@ class DisplayActivity : Activity(), SurfaceHolder.Callback {
             return
         }
         if (cfg != null) {
-            val key = "${cfg.width}x${cfg.height}"
+            val key = "${cfg.width}x${cfg.height}|${store.stretch}"
             if (key != lastConfigKey) {
                 lastConfigKey = key
                 requestedOrientation = if (cfg.height > cfg.width) ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
@@ -240,6 +314,11 @@ class DisplayActivity : Activity(), SurfaceHolder.Callback {
             val root = surfaceView.parent as View
             val rw = root.width.toFloat(); val rh = root.height.toFloat()
             if (rw == 0f || rh == 0f) return@post
+            if (store.stretch) {
+                // "Estirar la pantalla": fill the whole phone screen whatever the PC resolution.
+                surfaceView.layoutParams = FrameLayout.LayoutParams(-1, -1, Gravity.CENTER)
+                return@post
+            }
             val scale = minOf(rw / w, rh / h)
             surfaceView.layoutParams = FrameLayout.LayoutParams((w * scale).toInt(), (h * scale).toInt(), Gravity.CENTER)
         }

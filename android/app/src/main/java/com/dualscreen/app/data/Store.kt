@@ -67,6 +67,16 @@ class Store(context: Context) {
         get() = prefs.getBoolean("showStats", false)
         set(v) = prefs.edit().putBoolean("showStats", v).apply()
 
+    /** "touch": the finger is the pointer. "mouse": the screen works as a touchpad (relative pointer). */
+    var controlMode: String
+        get() = prefs.getString("controlMode", "touch") ?: "touch"
+        set(v) = prefs.edit().putString("controlMode", v).apply()
+
+    /** Stretch the picture to the whole phone screen whatever the PC resolution. */
+    var stretch: Boolean
+        get() = prefs.getBoolean("stretch", false)
+        set(v) = prefs.edit().putBoolean("stretch", v).apply()
+
     var quality: String
         get() = prefs.getString("quality", "auto") ?: "auto"
         set(v) = prefs.edit().putString("quality", v).apply()

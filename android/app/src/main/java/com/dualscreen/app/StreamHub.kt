@@ -60,6 +60,11 @@ object StreamHub {
     @Volatile var latencyMs = Double.NaN; private set
     /** Settings and options of the PC (HOST_STATE), for the in-stream settings panel. */
     @Volatile var hostState: JSONObject? = null; private set
+    /** PC pointer position (0..1 over the video), from CURSOR position frames; used by the touchpad mode. */
+    @Volatile var cursorX = 0.5f
+    @Volatile var cursorY = 0.5f
+    /** Last local touchpad move: the PC's (older) echo is ignored for a moment so the pointer never jumps back. */
+    @Volatile var localCursorAtMs = 0L
 
     private val sendExec = Executors.newSingleThreadExecutor { r -> Thread(r, "DualScreen.Send").apply { isDaemon = true } }
     private val audio = AudioPlayer()
@@ -397,6 +402,12 @@ object StreamHub {
                         }
                     }
                     Protocol.AUDIO -> audio.feed(f.payload)
+                    Protocol.CURSOR -> if (f.payload.size >= 6 && f.payload[0].toInt() == 2 && f.payload[1].toInt() != 0
+                        && android.os.SystemClock.uptimeMillis() - localCursorAtMs > 400) {
+                        val bb = ByteBuffer.wrap(f.payload, 2, 4)
+                        cursorX = (bb.short.toInt() and 0xFFFF) / 65535f
+                        cursorY = (bb.short.toInt() and 0xFFFF) / 65535f
+                    }
                     Protocol.HOST_STATE -> { hostState = runCatching { f.json() }.getOrNull(); changed() }
                     Protocol.STREAM_CONFIG -> {
                         val c = f.json()

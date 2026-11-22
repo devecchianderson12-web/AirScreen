@@ -93,6 +93,9 @@ object SettingsSheet {
         else HostSettingsView.populate(a, box, st)
 
         box.addView(Ui.subtitle(a, "En el teléfono"))
+        box.addView(Ui.choiceRow(a, "Control", "Táctil: el dedo es el puntero. Mouse: la pantalla es un touchpad (mover, tocar = clic, dos dedos = clic derecho o desplazar).",
+            listOf("touch" to "Táctil directo", "mouse" to "Mouse (touchpad)"), s.controlMode) { s.controlMode = it; build() })
+        box.addView(Ui.toggleRow(a, "Estirar la pantalla", "Ocupa todo el teléfono aunque la resolución de la PC sea otra.", s.stretch) { s.stretch = it })
         box.addView(Ui.toggleRow(a, "Sonido de la PC", "Reproduce en el teléfono lo que suena en la PC.", s.audio) {
             s.audio = it
             StreamHub.sendHostSettings(JSONObject().put("audio", it))

@@ -275,7 +275,7 @@ class MainActivity : Activity() {
                 "${StreamHub.latencyMs.toInt()}|${(StreamHub.recvKbps / 500).toInt()}|${StreamHub.hostState?.optString("quality")}"
             Page.DEVICES -> base + "|" + Beacons.current().joinToString { it.hostId + it.name } + "|" + store.hosts().joinToString { it.hostId + it.name }
             Page.DISPLAY -> base + "|" + StreamHub.hostState?.toString()
-            Page.SETTINGS -> base + "|${store.audio}|${store.showStats}"
+            Page.SETTINGS -> base + "|${store.audio}|${store.showStats}|${store.controlMode}|${store.stretch}"
         }
     }
 
@@ -462,6 +462,9 @@ class MainActivity : Activity() {
             StreamHub.sendHostSettings(JSONObject().put("audio", it))
         })
         box.addView(Ui.toggleRow(this, "Estadísticas en pantalla", "Resolución, fps, latencia real y velocidad en una esquina.", store.showStats) { store.showStats = it })
+        box.addView(Ui.choiceRow(this, "Control", "Táctil: el dedo es el puntero. Mouse: la pantalla es un touchpad (mover, tocar = clic, dos dedos = clic derecho o desplazar).",
+            listOf("touch" to "Táctil directo", "mouse" to "Mouse (touchpad)"), store.controlMode) { store.controlMode = it; lastSignature = ""; render() })
+        box.addView(Ui.toggleRow(this, "Estirar la pantalla", "Ocupa todo el teléfono aunque la resolución de la PC sea otra.", store.stretch) { store.stretch = it })
 
         box.addView(Ui.subtitle(this, "Actualizaciones"))
         val upd = Ui.card(this)

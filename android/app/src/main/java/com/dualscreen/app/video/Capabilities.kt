@@ -58,7 +58,7 @@ object Capabilities {
             .put("sdkInt", Build.VERSION.SDK_INT)
             .put("platform", "android")
             .put("input", JSONArray(listOf("touch", "pen")))
-            .put("features", JSONArray(listOf("audio", "hostSettings", "latency")))
+            .put("features", JSONArray(listOf("audio", "hostSettings", "latency", "cursorPos")))
     }
 
     /** Highest frame rate the decoder supports at w×h in either orientation (capped at 240). */

@@ -103,4 +103,15 @@ object InputCodec {
             .putShort(x.toShort()).putShort(y.toShort()).putShort(pressure.toShort()).put(buttons.toByte()).array()
 
     fun releaseAll(): ByteArray = byteArrayOf(7)
+
+    const val LEFT = 0; const val RIGHT = 1; const val MIDDLE = 2
+
+    fun mouseMove(x: Int, y: Int): ByteArray = ByteBuffer.allocate(5).put(3).putShort(x.toShort()).putShort(y.toShort()).array()
+
+    fun mouseButton(button: Int, down: Boolean, x: Int, y: Int): ByteArray =
+        ByteBuffer.allocate(7).put(4).put(button.toByte()).put((if (down) 1 else 0).toByte())
+            .putShort(x.toShort()).putShort(y.toShort()).array()
+
+    fun wheel(horizontal: Boolean, delta: Int): ByteArray =
+        ByteBuffer.allocate(4).put(5).put((if (horizontal) 1 else 0).toByte()).putShort(delta.toShort()).array()
 }

@@ -65,6 +65,13 @@ class StreamService : Service() {
         getSystemService(NotificationManager::class.java)!!.notify(ID, build())
     }
 
+    /** Swiping DualScreen away from Recents ends the stream (nothing is shown anymore). */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        StreamHub.disconnect()
+        stopSelf()
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onDestroy() {
         StreamHub.removeListener(listener)
         runCatching { wifiLock?.release() }

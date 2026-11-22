@@ -75,6 +75,7 @@ public sealed class StreamPipeline : IDisposable
         }
         _capture.SizeChanged += (w, h) => { _captureResized = true; SourceResized?.Invoke(w, h); };
         if (!CaptureCursor || _capture is DuplicationCapture) _cursor = new CursorTracker(_session, _target.Monitor, _outW, _outH);
+        else if (_session.Hello.Caps.Has("cursorPos")) _cursor = new CursorTracker(_session, _target.Monitor, _outW, _outH, shapes: false); // phone touchpad mode
         _converter = new FrameConverter(_d3d, _capture.Width, _capture.Height, _outW, _outH, _abr.TargetFps);
         _encoder = CreateEncoder();
         Stats.Encoder = _encoder.Name + (_encoder.IsHardware ? " (HW)" : " (SW)");

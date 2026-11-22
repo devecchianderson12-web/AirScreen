@@ -2,6 +2,15 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones [SemVer](https://semver.org/lang/es/).
 
+## [0.3.4] - 2026-11-22
+
+### Añadido (Android)
+- **Control: Táctil o Mouse (touchpad)** en el punto de ajustes y en Configuración. En modo mouse la pantalla del teléfono funciona como touchpad: el dedo mueve el puntero por toda la pantalla de la PC desde cualquier lado (con aceleración), tocar = clic, dos dedos = clic derecho, deslizar con dos dedos = desplazar, tocar y mantener = arrastrar.
+- **Estirar la pantalla**: la imagen ocupa todo el teléfono sea cual sea la resolución en espejo o extendida.
+
+### Cambiado
+- Cerrar DualScreen desde Recientes en el teléfono deja de transmitir.
+
 ## [0.3.3] - 2026-11-22
 
 ### Cambiado

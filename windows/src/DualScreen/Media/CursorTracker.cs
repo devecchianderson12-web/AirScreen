@@ -24,8 +24,12 @@ public sealed class CursorTracker : IDisposable
     private (bool visible, ushort x, ushort y) _lastPos = (false, 0, 0);
     private long _lastPollUs;
 
-    public CursorTracker(ClientSession session, IntPtr monitor, int videoW, int videoH)
+    private readonly bool _shapes;
+
+    /// <param name="shapes">Also send the cursor image (receivers that draw the cursor themselves).</param>
+    public CursorTracker(ClientSession session, IntPtr monitor, int videoW, int videoH, bool shapes = true)
     {
+        _shapes = shapes;
         _session = session;
         _monitor = monitor;
         _videoW = videoW;
@@ -42,7 +46,7 @@ public sealed class CursorTracker : IDisposable
         if (!GetCursorInfo(ref ci)) return;
         bool showing = (ci.flags & 1) != 0 && ci.hCursor != IntPtr.Zero;
 
-        if (showing && ci.hCursor != _lastHandle)
+        if (_shapes && showing && ci.hCursor != _lastHandle)
         {
             _lastHandle = ci.hCursor;
             var shape = Capture(ci.hCursor);
