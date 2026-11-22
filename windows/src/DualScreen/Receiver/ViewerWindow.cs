@@ -14,15 +14,23 @@ namespace DualScreen.Receiver;
 /// Exits: Esc or Alt+F4 close it; the Windows key, Alt+Tab, Ctrl+Esc, Ctrl+Shift+Esc… let Windows show the
 /// taskbar and the window minimizes itself (the connection stays open; click it in the taskbar to return).
 /// "Do not disturb" mode swallows the whole keyboard with a low-level hook; the way out is holding the top-left
-/// corner for 3 seconds (finger, pen or mouse), Ctrl+Alt+Del, or stopping from the other PC.
+/// corner for 3 seconds (finger, pen or mouse) or stopping from the other PC. Convertibles in tent/stand/tablet posture
+/// behave the same way (touch only).
 /// </summary>
 public sealed class ViewerWindow : IDisposable
 {
     private const int CornerHoldMs = 3000;
     private const uint CornerTimerId = 1;
+    private const uint TopmostTimerId = 2;
+    private const uint RefocusTimerId = 3;
 
     private readonly IntPtr _monitor;
     private readonly bool _noKeyboard;
+    /// <summary>Convertible in tent/stand/tablet posture (keyboard folded away): only touch and pen are used.</summary>
+    private volatile bool _slate;
+    private long _lastSwitchKeyMs = long.MinValue / 2;
+    /// <summary>Keyboard and mouse are ignored ("No molestar" or tablet posture); exit with the corner gesture.</summary>
+    private bool InputLocked => _noKeyboard || _slate;
     private readonly Thread _thread;
     private readonly ManualResetEventSlim _created = new();
     private readonly WndProc _wndProc;
@@ -113,10 +121,13 @@ public sealed class ViewerWindow : IDisposable
                 r.Left, r.Top, _width, _height, IntPtr.Zero, IntPtr.Zero, hInst, IntPtr.Zero);
             if (_hwnd == IntPtr.Zero) { _created.Set(); return; }
             PrepareTouch(_hwnd);
+            _slate = IsTabletPosture();
             ShowWindow(_hwnd, SW_SHOW);
-            SetForegroundWindow(_hwnd);
+            ForceForeground(_hwnd);
             _shownTicks = Environment.TickCount64;
-            if (_noKeyboard) InstallHook();
+            InstallHook();
+            // Being the monitor has priority: stay above every other window (re-asserted every 2 s).
+            SetTimer(_hwnd, TopmostTimerId, 2000, IntPtr.Zero);
         }
         catch (Exception ex)
         {
@@ -182,6 +193,7 @@ public sealed class ViewerWindow : IDisposable
                     break;
 
                 case WM_MOUSEMOVE:
+                    if (_slate) return IntPtr.Zero;
                     if (!FromTouch())
                     {
                         var cp = new POINT { X = (short)LoWord(lParam), Y = (short)HiWord(lParam) };
@@ -215,9 +227,11 @@ public sealed class ViewerWindow : IDisposable
                 case WM_LBUTTONDBLCLK: case WM_RBUTTONDBLCLK: case WM_MBUTTONDBLCLK:
                     return IntPtr.Zero;
                 case WM_MOUSEWHEEL:
+                    if (_slate) return IntPtr.Zero;
                     Send?.Invoke(InputCodec.Wheel(false, (short)HiWord(wParam)));
                     return IntPtr.Zero;
                 case WM_MOUSEHWHEEL:
+                    if (_slate) return IntPtr.Zero;
                     Send?.Invoke(InputCodec.Wheel(true, (short)HiWord(wParam)));
                     return IntPtr.Zero;
                 case WM_SETCURSOR:
@@ -245,6 +259,23 @@ public sealed class ViewerWindow : IDisposable
                 case WM_ACTIVATE:
                     OnActivate(LoWord(wParam) != 0, HiWord(wParam) != 0);
                     return IntPtr.Zero;
+                case WM_TIMER when (uint)wParam == TopmostTimerId:
+                    if (!IsIconic(hwnd)) SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                    return IntPtr.Zero;
+                case WM_TIMER when (uint)wParam == RefocusTimerId:
+                    KillTimer(hwnd, RefocusTimerId);
+                    if (!IsIconic(hwnd) && GetForegroundWindow() != hwnd) ForceForeground(hwnd);
+                    return IntPtr.Zero;
+                case WM_SETTINGCHANGE:
+                    // Laptop <-> tent/stand/tablet posture (ConvertibleSlateMode) on convertibles like the Lenovo Flex.
+                    bool slate = IsTabletPosture();
+                    if (slate != _slate)
+                    {
+                        _slate = slate;
+                        ReleaseAll();
+                        Log.Info(slate ? "Tablet posture: keyboard and mouse disabled, touch only" : "Laptop posture: keyboard and mouse enabled");
+                    }
+                    break;
                 case WM_TIMER when (uint)wParam == CornerTimerId:
                     KillTimer(hwnd, CornerTimerId);
                     if (_corner != null) { _corner = null; _cornerFired = true; RequestExit(); }
@@ -298,24 +329,52 @@ public sealed class ViewerWindow : IDisposable
         if (active && !minimized)
         {
             SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-            if (_noKeyboard) InstallHook();
+            InstallHook();
+            SetTimer(_hwnd, TopmostTimerId, 2000, IntPtr.Zero);
             return;
         }
         if (active) return;
-        // Focus bounces right after creation: do not treat that as leaving.
-        if (Environment.TickCount64 - _shownTicks < 600)
+        ReleaseAll();
+        bool userLeaving = !InputLocked && Environment.TickCount64 - _lastSwitchKeyMs < 2500
+                           && Environment.TickCount64 - _shownTicks > 600;
+        if (!userLeaving || _closing)
         {
-            SetForegroundWindow(_hwnd);
+            // Something else took the focus (a notification, another app, rotating the screen…): the monitor keeps
+            // priority — stay on top and take the focus back.
+            SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            if (!_closing) SetTimer(_hwnd, RefocusTimerId, 400, IntPtr.Zero);
             return;
         }
-        // Windows key, Alt+Tab, Task Manager, Ctrl+Alt+Del…: let the user reach the taskbar and the desktop.
-        ReleaseAll();
-        RemoveHook();
-        if (!_closing)
+        // Windows key, Alt+Tab, Ctrl+Esc, Task Manager, Ctrl+Alt+Del: let the user reach the taskbar and the desktop.
+        KillTimer(_hwnd, TopmostTimerId);
+        SetWindowPos(_hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        ShowWindow(_hwnd, SW_MINIMIZE);
+    }
+
+    /// <summary>Tent/stand/tablet posture of a convertible (needs an integrated touch screen to count).</summary>
+    private static bool IsTabletPosture()
+    {
+        const int SM_CONVERTIBLESLATEMODE = 0x2003, SM_DIGITIZER = 94, NID_INTEGRATED_TOUCH = 0x01, NID_READY = 0x80;
+        int digitizer = GetSystemMetrics(SM_DIGITIZER);
+        if ((digitizer & NID_INTEGRATED_TOUCH) == 0 || (digitizer & NID_READY) == 0) return false;
+        return GetSystemMetrics(SM_CONVERTIBLESLATEMODE) == 0;
+    }
+
+    /// <summary>Brings the window to the front even when DualScreen was started in the background (cast).</summary>
+    private static void ForceForeground(IntPtr hwnd)
+    {
+        IntPtr fg = GetForegroundWindow();
+        uint fgThread = fg != IntPtr.Zero ? GetWindowThreadProcessId(fg, IntPtr.Zero) : 0;
+        uint me = GetCurrentThreadId();
+        bool attached = fgThread != 0 && fgThread != me && AttachThreadInput(me, fgThread, true);
+        try
         {
-            SetWindowPos(_hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-            ShowWindow(_hwnd, SW_MINIMIZE);
+            SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+            BringWindowToTop(hwnd);
+            SetForegroundWindow(hwnd);
+            SetFocus(hwnd);
         }
+        finally { if (attached) AttachThreadInput(me, fgThread, false); }
     }
 
     // ------------------------------------------------------------------ coordinates
@@ -368,7 +427,7 @@ public sealed class ViewerWindow : IDisposable
                 byte cid = 0;
                 while (_touchIds.ContainsValue(cid) && cid < 255) cid++;
                 _touchIds[id] = cid;
-                if (_noKeyboard && _corner == null && !_cornerFired && InCorner(pi.ptPixelLocation))
+                if (InputLocked && _corner == null && !_cornerFired && InCorner(pi.ptPixelLocation))
                 {
                     _corner = new CornerHold { IsTouch = true, PointerId = id, ContactId = cid, X = x, Y = y };
                     SetTimer(_hwnd, CornerTimerId, CornerHoldMs, IntPtr.Zero);
@@ -404,7 +463,7 @@ public sealed class ViewerWindow : IDisposable
             if ((pen.penFlags & PEN_FLAG_INVERTED) != 0) buttons |= PenButtons.Inverted;
             if ((pen.penFlags & PEN_FLAG_ERASER) != 0) buttons |= PenButtons.Eraser;
             ushort pressure = (pen.penMask & PEN_MASK_PRESSURE) != 0 ? (ushort)Math.Min(pen.pressure, 1024u) : (ushort)512;
-            if (_noKeyboard && state == PenState.Down && _corner == null && InCorner(pen.pointerInfo.ptPixelLocation))
+            if (InputLocked && state == PenState.Down && _corner == null && InCorner(pen.pointerInfo.ptPixelLocation))
             {
                 _corner = new CornerHold { IsTouch = false, PointerId = id, X = x, Y = y };
                 SetTimer(_hwnd, CornerTimerId, CornerHoldMs, IntPtr.Zero);
@@ -450,14 +509,14 @@ public sealed class ViewerWindow : IDisposable
 
     private IntPtr MouseButton(MouseButtonId b, bool down, IntPtr lParam)
     {
-        if (FromTouch()) return IntPtr.Zero;
+        if (FromTouch() || _slate) return IntPtr.Zero;
         var (x, y) = Norm(lParam);
         int bit = 1 << (int)b;
         if (down)
         {
             if (_mouseButtons == 0) SetCapture(_hwnd);
             _mouseButtons |= bit;
-            if (b == MouseButtonId.Left && _noKeyboard && _corner == null && !_cornerFired)
+            if (b == MouseButtonId.Left && _noKeyboard && !_slate && _corner == null && !_cornerFired)
             {
                 var p = new POINT { X = (short)LoWord(lParam), Y = (short)HiWord(lParam) };
                 ClientToScreen(_hwnd, ref p);
@@ -484,7 +543,7 @@ public sealed class ViewerWindow : IDisposable
 
     private void OnKey(int vk, IntPtr lParam, bool up, bool sys)
     {
-        if (_noKeyboard) return; // the hook already swallows everything; belt and braces
+        if (InputLocked) return; // the hook already swallows everything; belt and braces
         long lp = (long)lParam;
         ushort scan = (ushort)((lp >> 16) & 0xFF);
         bool ext = ((lp >> 24) & 1) != 0;
@@ -597,8 +656,17 @@ public sealed class ViewerWindow : IDisposable
     }
 
     /// <summary>"Do not disturb": every key (including Windows, Alt+Tab, Ctrl+Esc, Ctrl+Shift+Esc) is discarded. Ctrl+Alt+Del cannot be blocked by design.</summary>
-    private IntPtr HookProc(int code, IntPtr wParam, IntPtr lParam) =>
-        code >= 0 ? (IntPtr)1 : CallNextHookEx(_hook, code, wParam, lParam);
+    private IntPtr HookProc(int code, IntPtr wParam, IntPtr lParam)
+    {
+        if (code < 0) return CallNextHookEx(_hook, code, wParam, lParam);
+        if (InputLocked && !IsIconic(_hwnd)) return (IntPtr)1; // "No molestar" / tablet posture: every key discarded
+        int vk = Marshal.ReadInt32(lParam);
+        bool down = (int)wParam is 0x0100 or 0x0104; // WM_KEYDOWN / WM_SYSKEYDOWN
+        // Keys that mean "let me reach the taskbar": Windows, Alt(+Tab), Ctrl(+Esc / +Shift+Esc / +Alt+Del).
+        if (down && vk is VK_LWIN or VK_RWIN or 0x12 or 0xA4 or 0xA5 or 0x11 or 0xA2 or 0xA3 or VK_ESCAPE or 0x09)
+            _lastSwitchKeyMs = Environment.TickCount64;
+        return CallNextHookEx(_hook, code, wParam, lParam);
+    }
 
     // ------------------------------------------------------------------ Win32
 
@@ -613,7 +681,7 @@ public sealed class ViewerWindow : IDisposable
         WM_MBUTTONUP = 0x0208, WM_MBUTTONDBLCLK = 0x0209, WM_MOUSEWHEEL = 0x020A, WM_XBUTTONDOWN = 0x020B,
         WM_XBUTTONUP = 0x020C, WM_MOUSEHWHEEL = 0x020E, WM_POINTERUPDATE = 0x0245, WM_POINTERDOWN = 0x0246,
         WM_POINTERUP = 0x0247, WM_POINTERLEAVE = 0x024A, WM_POINTERCAPTURECHANGED = 0x024C, WM_DISPLAYCHANGE = 0x007E,
-        WM_APP_CURSOR = 0x8001, WM_APP_CURSORPOS = 0x8002;
+        WM_APP_CURSOR = 0x8001, WM_APP_CURSORPOS = 0x8002, WM_SETTINGCHANGE = 0x001A;
     private const int SC_KEYMENU = 0xF100, SC_SCREENSAVE = 0xF140, SC_MONITORPOWER = 0xF170;
     private const int HTCLIENT = 1, SIZE_MINIMIZED = 1, SW_SHOW = 5, SW_MINIMIZE = 6, BLACK_BRUSH = 4;
     private const int VK_ESCAPE = 0x1B, VK_F4 = 0x73, VK_LWIN = 0x5B, VK_RWIN = 0x5C;
@@ -682,6 +750,14 @@ public sealed class ViewerWindow : IDisposable
     [DllImport("user32.dll")] private static extern bool DestroyWindow(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hwnd, int cmd);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern IntPtr SetFocus(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern int GetSystemMetrics(int index);
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, IntPtr pid);
+    [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint from, uint to, bool attach);
+    [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
     [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] private static extern int GetMessage(out MSG msg, IntPtr hwnd, uint min, uint max);
     [DllImport("user32.dll")] private static extern bool TranslateMessage(ref MSG msg);

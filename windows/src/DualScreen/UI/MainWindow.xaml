@@ -314,7 +314,11 @@
                                 <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,4,0,0"
                                            Text="• Tecla Windows, Alt+Tab, Ctrl+Esc o Ctrl+Shift+Esc: aparece la barra de tareas y DualScreen se minimiza sin cortar la conexión (volvé con un clic en la barra de tareas)."/>
                                 <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,4,0,0"
-                                           Text="• Con «No molestar»: mantené presionada 3 segundos la esquina superior izquierda (dedo, lápiz o mouse), usá Ctrl+Alt+Supr o desconectá desde la otra PC."/>
+                                           Text="• Con «No molestar»: mantené presionada 3 segundos la esquina superior izquierda (dedo, lápiz o mouse) o desconectá desde la otra PC."/>
+                                <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                           Text="• Convertibles (Lenovo Flex, Yoga…): en modo carpa, atril o tablet el teclado y el mouse se anulan y solo funciona el táctil; para salir, la misma esquina. En modo notebook vuelven a funcionar."/>
+                                <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                           Text="• Mientras se usa como monitor, la pantalla queda por encima de todo: notificaciones u otras ventanas no la tapan ni la minimizan."/>
                             </StackPanel></Border>
                         </StackPanel>
 

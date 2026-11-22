@@ -2,6 +2,12 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones [SemVer](https://semver.org/lang/es/).
 
+## [0.3.3] - 2026-11-22
+
+### Cambiado
+- **La pantalla del receptor tiene prioridad**: al conectarse o al recibir una transmisión queda por encima de todo y ya no se minimiza ni la tapan notificaciones, otras ventanas o el giro de pantalla. Solo se minimiza cuando vos usás la tecla Windows, Alt+Tab, Ctrl+Esc, Ctrl+Shift+Esc o Ctrl+Alt+Supr (y se cierra con Esc). Al recibir una transmisión con la notebook sin tocar, la ventana pasa adelante igual.
+- **Convertibles (Lenovo Flex, Yoga…)**: en modo carpa, atril o tablet se anulan el teclado y el mouse/touchpad y funciona solo el táctil (se sale manteniendo 3 s la esquina superior izquierda). En modo notebook vuelven a funcionar al instante.
+
 ## [0.3.2] - 2026-11-22
 
 ### Corregido
