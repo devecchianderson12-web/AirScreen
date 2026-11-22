@@ -2,6 +2,12 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones [SemVer](https://semver.org/lang/es/).
 
+## [0.3.5] - 2026-11-22
+
+### Corregido
+- No se veía el mouse de la PC en la notebook receptora al pasarlo al monitor extendido: el puntero se dibujaba en la notebook, y Windows lo oculta después de usar el táctil (más aún en modo carpa/tablet). Ahora el puntero de la PC viaja siempre dentro de la imagen, así se ve en cualquier receptor y en cualquier modo.
+- Con la captura alternativa (Desktop Duplication) el puntero no aparecía en la imagen: ahora se dibuja (forma y posición reales, incluido el cursor de texto).
+
 ## [0.3.4] - 2026-11-22
 
 ### Añadido (Android)

@@ -46,7 +46,6 @@ public sealed class StreamPipeline : IDisposable
     public event Action<Exception>? Failed;
     /// <summary>The captured monitor changed size (resolution or rotation changed in Windows Settings).</summary>
     public event Action<int, int>? SourceResized;
-    public bool CaptureCursor { get; init; } = true;
     private CursorTracker? _cursor;
 
     public StreamPipeline(D3DDevice d3d, DisplayTarget target, ClientSession session, BitrateController abr, string mime, int outW, int outH)
@@ -74,8 +73,7 @@ public sealed class StreamPipeline : IDisposable
             _capture.Start();
         }
         _capture.SizeChanged += (w, h) => { _captureResized = true; SourceResized?.Invoke(w, h); };
-        if (!CaptureCursor || _capture is DuplicationCapture) _cursor = new CursorTracker(_session, _target.Monitor, _outW, _outH);
-        else if (_session.Hello.Caps.Has("cursorPos")) _cursor = new CursorTracker(_session, _target.Monitor, _outW, _outH, shapes: false); // phone touchpad mode
+        if (_session.Hello.Caps.Has("cursorPos")) _cursor = new CursorTracker(_session, _target.Monitor, _outW, _outH); // phone touchpad mode
         _converter = new FrameConverter(_d3d, _capture.Width, _capture.Height, _outW, _outH, _abr.TargetFps);
         _encoder = CreateEncoder();
         Stats.Encoder = _encoder.Name + (_encoder.IsHardware ? " (HW)" : " (SW)");
@@ -87,7 +85,7 @@ public sealed class StreamPipeline : IDisposable
     /// <summary>Windows.Graphics.Capture first; Desktop Duplication when WGC is unavailable on this PC.</summary>
     private ICaptureSource CreateCapture()
     {
-        try { return new WgcCapture(_d3d, _target.Monitor, CaptureCursor); }
+        try { return new WgcCapture(_d3d, _target.Monitor); }
         catch (Exception ex)
         {
             Log.Warn("Windows.Graphics.Capture unavailable (" + ex.Message + "); using Desktop Duplication");

@@ -61,7 +61,7 @@ public sealed class WgcCapture : ICaptureSource
 
     public static bool IsSupported => GraphicsCaptureSession.IsSupported();
 
-    public WgcCapture(D3DDevice d3d, IntPtr hmonitor, bool captureCursor = true)
+    public WgcCapture(D3DDevice d3d, IntPtr hmonitor)
     {
         _d3d = d3d;
         using (var dxgi = d3d.Device.QueryInterface<IDXGIDevice>())
@@ -84,8 +84,7 @@ public sealed class WgcCapture : ICaptureSource
         _pool = Direct3D11CaptureFramePool.CreateFreeThreaded(_winrtDevice, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, _poolSize);
         _pool.FrameArrived += OnFrameArrived;
         _session = _pool.CreateCaptureSession(_item);
-        // Receivers that draw the cursor themselves (zero-latency pointer) get the picture without it.
-        try { _session.IsCursorCaptureEnabled = captureCursor; } catch { }
+        try { _session.IsCursorCaptureEnabled = true; } catch { }
         try { _session.IsBorderRequired = false; } catch { /* Windows 10: yellow border cannot be removed */ }
         AllocateLatest(Width, Height);
     }

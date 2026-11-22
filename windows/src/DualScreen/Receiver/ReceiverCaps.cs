@@ -46,7 +46,9 @@ public static class ReceiverCaps
             SdkInt = Environment.OSVersion.Version.Build,
             Platform = "windows",
             Input = new List<string> { "touch", "pen", "mouse", "keyboard" },
-            Features = new List<string> { "cursor", "audio", "hostSettings", "latency" },
+            // No "cursor": the PC draws its pointer into the video, so it is always visible (a locally drawn
+            // cursor disappears when Windows hides the pointer after touch input on convertibles).
+            Features = new List<string> { "audio", "hostSettings", "latency" },
         };
     }
 

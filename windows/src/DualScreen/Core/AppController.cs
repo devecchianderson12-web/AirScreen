@@ -498,11 +498,7 @@ public sealed class AppController : IDisposable
 
             var abr = new BitrateController(outW, outH, fps, EffectiveQuality(session), s.MaxBitrateMbps);
             _d3d ??= new D3DDevice();
-            var pipeline = new StreamPipeline(_d3d, target, session, abr, mime, outW, outH)
-            {
-                // Receivers that draw the cursor locally get it out of the video (zero-latency pointer).
-                CaptureCursor = !session.Hello.Caps.Has("cursor"),
-            };
+            var pipeline = new StreamPipeline(_d3d, target, session, abr, mime, outW, outH);
             pipeline.SourceResized += (_, _) => _ = OnSourceResizedAsync(session);
             pipeline.Failed += ex =>
             {

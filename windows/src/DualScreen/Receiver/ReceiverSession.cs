@@ -165,7 +165,6 @@ public sealed class ReceiverSession
                                 }
                             }
                             break;
-                        case MsgType.Cursor: _viewer.OnHostCursor(f.Payload); break;
                         case MsgType.Audio: _audio.Feed(f.Payload); break;
                         case MsgType.HostState:
                             HostState = f.Json<HostStateMsg>();
@@ -206,7 +205,6 @@ public sealed class ReceiverSession
         _decoder = null;
         _decoder = new MfDecoder(_d3d, cfg.Mime, cfg.Width, cfg.Height, cfg.Fps);
         _renderer!.SetVideoSize(cfg.Width, cfg.Height);
-        _viewer.VideoWidth = cfg.Width;
         _waitKeyframe = true;
         RequestKeyframe();
         Log.Info($"Receiving {cfg.Mime} {cfg.Width}x{cfg.Height}@{cfg.Fps} ({cfg.Mode}) from {HostName}");
