@@ -41,6 +41,8 @@ public partial class MainWindow : Window
             _loading = false;
             RefreshAll();
         };
+        // Touch scrolling past the end must not shake the whole window.
+        ManipulationBoundaryFeedback += (_, e) => e.Handled = true;
         StateChanged += (_, _) => MaxButton.Content = WindowState == WindowState.Maximized ? "" : "";
         _app.StateChanged += OnAppChanged;
         _app.Updates.Changed += OnAppChanged;

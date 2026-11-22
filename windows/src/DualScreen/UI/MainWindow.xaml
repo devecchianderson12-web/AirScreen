@@ -48,7 +48,7 @@
 
             <!-- Content -->
             <Border Grid.Column="1" Background="{StaticResource PanelBrush}" CornerRadius="12,0,0,0" BorderBrush="{StaticResource SubtleStrokeBrush}" BorderThickness="1,1,0,0">
-                <ScrollViewer x:Name="ContentScroll" VerticalScrollBarVisibility="Auto" Padding="36,28,36,28">
+                <ScrollViewer x:Name="ContentScroll" VerticalScrollBarVisibility="Auto" Padding="36,28,36,28" PanningMode="VerticalFirst">
                     <Grid x:Name="Pages" MaxWidth="900" HorizontalAlignment="Stretch">
 
                         <!-- ===================== HOME ===================== -->

@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones [SemVer](https://semver.org/lang/es/).
 
+## [0.3.6] - 2026-11-22
+
+### Corregido
+- No se podía desplazar (scroll) con el dedo dentro de DualScreen en pantallas táctiles: las listas y páginas ahora se mueven arrastrando con un dedo, sin necesidad de mouse.
+
 ## [0.3.5] - 2026-11-22
 
 ### Corregido

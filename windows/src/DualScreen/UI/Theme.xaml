@@ -483,6 +483,12 @@
         </Setter>
     </Style>
 
+    <!-- Touch: drag with a finger to scroll (WPF does not pan by default). -->
+    <Style TargetType="ScrollViewer">
+        <Setter Property="PanningMode" Value="VerticalFirst"/>
+        <Setter Property="PanningDeceleration" Value="0.003"/>
+    </Style>
+
     <Style TargetType="Slider">
         <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
     </Style>
